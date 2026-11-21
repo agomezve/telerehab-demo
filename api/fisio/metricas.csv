@@ -1,0 +1,4 @@
+﻿ID;Paciente;Edad;Primera sesión;Última sesión;Semanas de uso;Series;Días activos;Días por semana;Series últimos 7 días;Adherencia 7 días (%);% correcto 1.ª semana;% correcto última semana;Mejora (puntos)
+1;Carmen;71;2026-10-10;2026-11-21;7;128;22;3,1;26;100;87;96;9
+2;Julian;45;2026-10-12;2026-11-21;6;152;26;4,3;20;100;80;88;8
+3;Lucia;28;2026-10-10;2026-11-21;7;204;23;3,3;15;50;90;96;6
