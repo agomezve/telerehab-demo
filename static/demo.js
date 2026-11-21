@@ -47,7 +47,7 @@
       pac[p.id] = {
         id: p.id, nombre: p.nombre, edad: p.edad, sesiones: h.sesiones,
         plan: h.plan.map(({ ejercicio, nivel, series, dias_semana }) => ({ ejercicio, nivel, series, dias_semana })),
-        consentimiento: null, alertas: h.alertas,
+        consentimiento: null, alertas: h.alertas, nota: h.nota || null,
       };
     }
     return { generado: D.generado, pac, series: {}, siguienteId: Math.max(...Object.keys(pac).map(Number)) + 1, invitado: null };
@@ -70,7 +70,14 @@
     const hechas = detalle.reduce((a, d) => a + Math.min(d.hechas_semana, d.objetivo_semana), 0);
     const ultima = p.sesiones.length ? p.sesiones.map((s) => s.fecha.slice(0, 10)).sort().pop() : null;
     const diasSin = ultima ? Math.round((diaDe(fechaLocal(new Date())) - diaDe(ultima)) / 864e5) : null;
-    let alertas = (p.alertas || []).filter((a) => !["sin_plan", "sin_sesiones", "inactivo"].includes(a.tipo));
+    let alertas = (p.alertas || []).filter((a) => !["sin_plan", "sin_sesiones", "inactivo", "dolor"].includes(a.tipo));
+    // Dolor alto (>= 7) declarado en los últimos 7 días, como adherencia.py
+    const hoyD = diaDe(fechaLocal(new Date()));
+    const dolorosas = p.sesiones.filter((s) => (s.dolor || 0) >= 7 && (hoyD - diaDe(s.fecha)) / 864e5 <= 7);
+    if (dolorosas.length) {
+      const peor = dolorosas.reduce((a, b) => (b.dolor > a.dolor ? b : a));
+      alertas = [{ tipo: "dolor", gravedad: "alta", texto: `Dolor ${peor.dolor}/10 en ${peor.ejercicio}`, ejercicio: peor.ejercicio }, ...alertas];
+    }
     if (!p.plan.length) alertas = [{ tipo: "sin_plan", gravedad: "info", texto: "Sin plan de ejercicios asignado" }, ...alertas];
     if (!ultima) alertas.push({ tipo: "sin_sesiones", gravedad: "media", texto: "Todavía no ha hecho ninguna serie" });
     return { adherencia: p.plan.length && objetivo ? Math.round(100 * hechas / objetivo) : null, dias_sin_entrenar: diasSin, ultima, alertas };
@@ -121,7 +128,13 @@
     if (usuario.rol === "paciente") {
       const p = usuario.p;
       if (ruta === "/api/mi-historial") return responder(p.sesiones);
-      if (ruta === "/api/mi-plan") { const r = resumen(p); return responder({ plan: planDeHoy(p), adherencia: r.adherencia, dias_sin_entrenar: r.dias_sin_entrenar, ultima: r.ultima, alertas: r.alertas }); }
+      if (ruta === "/api/mi-plan") { const r = resumen(p); return responder({ plan: planDeHoy(p), adherencia: r.adherencia, dias_sin_entrenar: r.dias_sin_entrenar, ultima: r.ultima, alertas: r.alertas, nota: p.nota || null }); }
+      if (ruta === "/api/valoracion" && metodo === "POST") {
+        const dolor = +cuerpo.dolor, esfuerzo = +cuerpo.esfuerzo;
+        if (!(dolor >= 0 && dolor <= 10 && esfuerzo >= 1 && esfuerzo <= 3)) return fallo(400, "Dolor entre 0 y 10, esfuerzo entre 1 y 3");
+        if (!p.sesiones.length) return fallo(404, "Todavía no hay ninguna serie");
+        Object.assign(p.sesiones[0], { dolor, esfuerzo }); persistir(); return responder({ ok: true });
+      }
       if (ruta === "/api/mi-password") return responder({ ok: true });
       if (ruta === "/api/consentimiento") {
         if (metodo === "GET") return responder({ version_actual: versionConsentimiento(), aceptado: vigente(p), fecha: p.consentimiento ? p.consentimiento.fecha : null });
@@ -161,13 +174,18 @@
       if (!p) return fallo(404, "Paciente no encontrado");
       if (m[2] === "/historial") {
         const r = resumen(p);
-        return responder({ nombre: p.nombre, sesiones: p.sesiones, plan: planDeHoy(p), ...r,
+        return responder({ nombre: p.nombre, sesiones: p.sesiones, plan: planDeHoy(p), ...r, nota: p.nota || null,
           consentimiento: p.consentimiento ? { version: p.consentimiento.version, fecha: p.consentimiento.fecha, vigente: vigente(p) } : null });
       }
       if (m[2] === "/plan" && metodo === "PUT") {
         const items = (cuerpo.plan || []).map((i) => ({ ejercicio: i.ejercicio, nivel: i.nivel, series: +i.series, dias_semana: +i.dias_semana }));
         if (items.some((i) => !(i.series >= 1 && i.series <= 10 && i.dias_semana >= 1 && i.dias_semana <= 7))) return fallo(400, "Series entre 1 y 10, días por semana entre 1 y 7");
         p.plan = items; persistir(); return responder({ ok: true, plan: items });
+      }
+      if (m[2] === "/nota" && metodo === "PUT") {
+        const texto = String(cuerpo.texto || "").trim();
+        if (texto.length > 280) return fallo(400, "La nota no puede pasar de 280 caracteres");
+        p.nota = texto ? { texto, fecha: ahoraTexto() } : null; persistir(); return responder({ ok: true, nota: p.nota });
       }
       if (m[2] === "/invitacion") { E.invitado = p.id; persistir(); return responder(invitacion()); }
       if (!m[2] && metodo === "DELETE") {
@@ -224,7 +242,9 @@
       const t = this.video.currentTime;
       let fila = this.serie.linea[0];
       for (const f of this.serie.linea) { if (f[0] <= t) fila = f; else break; }
-      return { errores: fila[1], persona_detectada: !!fila[2], estado: fila[3], estado_esqueleto: "neutro", preparacion: 0 };
+      // [t, errores, persona, estado, contador, consejo, estado_esqueleto, preparación] (lo que mandó el motor)
+      return { errores: fila[1], persona_detectada: !!fila[2], estado: fila[3], contador: fila[4] ?? null, consejo: fila[5] || "",
+        estado_esqueleto: fila[6] || "neutro", preparacion: fila[7] || 0 };
     }
     _tic() {
       if (this.fin || !this.pendientes || this.video.readyState < 2 || !this.video.videoWidth) return;
@@ -249,7 +269,7 @@
       // Igual que el servidor: guarda la serie (con el informe real del motor) y avisa
       const fecha = ahoraTexto(), d = this.serie, p = this.p;
       p.sesiones.unshift({ fecha, ejercicio: this.ejercicio, nivel: this.nivel, repeticiones: d.repeticiones || 0,
-        errores: this._marcador().errores, profundidad_media: null, observaciones: "" });
+        errores: this._marcador().errores, profundidad_media: null, observaciones: "", dolor: null, esfuerzo: null });
       E.series[`${p.id}|${fecha}`] = { informe: d.informe || null, video: d.video };
       persistir();
       setTimeout(() => {

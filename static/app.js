@@ -15,6 +15,30 @@ const nombreVisible = (n) => NOMBRES[n] || n;
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fechaCorta = (iso) => { const [a, m, d] = iso.slice(0, 10).split("-"); return `${+d} ${MESES[+m - 1]} ${a}`; };
 const esPorTiempo = (ej) => ej === "Plancha" || ej === "Propiocepcion";
+const DIAS_CORTOS = ["L", "M", "X", "J", "V", "S", "D"];
+const isoLocal = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+
+// Zona del cuerpo de cada ejercicio (filtro de la biblioteca del fisio)
+const ZONAS = [["todos", "Todos"], ["pierna", "Rodilla y cadera"], ["hombro", "Hombro"], ["tronco", "Tronco"], ["equilibrio", "Equilibrio"]];
+const ZONA_EJ = {
+  Sentadilla: "pierna", "Peso Muerto": "pierna", "Hip Thrust": "pierna", Zancadas: "pierna", Bulgaras: "pierna",
+  "Press Militar": "hombro", "Press Banca": "hombro", "Hombros Laterales": "hombro", Plancha: "tronco", Propiocepcion: "equilibrio",
+};
+// Plantillas de plan por patología: [ejercicio, nivel, series al día, días por semana]. Son un punto de partida.
+const PLANTILLAS = [
+  { nombre: "Prótesis de rodilla · semanas 1-4", desc: "Fuerza suave de cuádriceps y glúteo, y equilibrio",
+    plan: [["Sentadilla", "principiante", 2, 5], ["Propiocepcion", "principiante", 2, 5], ["Hip Thrust", "principiante", 2, 3]] },
+  { nombre: "Prótesis de rodilla · semanas 5-8", desc: "Más carga y trabajo unilateral",
+    plan: [["Sentadilla", "intermedio", 3, 4], ["Zancadas", "principiante", 2, 3], ["Propiocepcion", "intermedio", 2, 5], ["Hip Thrust", "intermedio", 3, 3]] },
+  { nombre: "Hombro · manguito rotador", desc: "Elevaciones controladas y estabilidad escapular",
+    plan: [["Hombros Laterales", "principiante", 3, 5], ["Press Militar", "principiante", 2, 3], ["Plancha", "principiante", 2, 3]] },
+  { nombre: "Lumbalgia · core y cadena posterior", desc: "Estabilidad del tronco y glúteo",
+    plan: [["Plancha", "principiante", 3, 5], ["Hip Thrust", "principiante", 3, 4], ["Peso Muerto", "principiante", 2, 3]] },
+  { nombre: "Ligamento cruzado · fase intermedia", desc: "Fuerza unilateral y control de rodilla",
+    plan: [["Bulgaras", "principiante", 3, 3], ["Zancadas", "intermedio", 3, 3], ["Propiocepcion", "intermedio", 3, 5], ["Sentadilla", "intermedio", 3, 3]] },
+  { nombre: "Esguince de tobillo", desc: "Propiocepción y carga progresiva",
+    plan: [["Propiocepcion", "principiante", 3, 6], ["Sentadilla", "principiante", 2, 3]] },
+];
 
 // Icono de línea del sprite de index.html
 const ic = (nombre, clase = "") => `<svg class="ic ${clase}" aria-hidden="true"><use href="#i-${nombre}"/></svg>`;
@@ -90,6 +114,31 @@ function pintar(html, alPintar) {
   alPintar && alPintar();
 }
 
+// ─── Tema claro / oscuro ──────────────────────────────────────────────────────
+const TEMAS = [["auto", "auto", "Automático"], ["claro", "sol", "Claro"], ["oscuro", "luna", "Oscuro"]];
+function aplicarTema(tema) {
+  const raiz = document.documentElement;
+  if (tema === "claro" || tema === "oscuro") raiz.dataset.tema = tema; else delete raiz.dataset.tema;
+  // Color de la barra del sistema (iOS/Android) acorde al tema elegido
+  const oscuro = tema === "oscuro" || (tema !== "claro" && matchMedia("(prefers-color-scheme: dark)").matches);
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => (m.content = oscuro ? "#0B1015" : "#F4F6F9"));
+}
+function selectorTema() {
+  const actual = leer("tema") || "auto";
+  return `<h3 class="ajuste-tit">Apariencia</h3>
+    <div class="segmentado tema" role="group" aria-label="Apariencia">${TEMAS.map(([id, icono, txt]) =>
+    `<button type="button" data-tema="${id}" aria-pressed="${id === actual}">${ic(icono, "mini")} ${txt}</button>`).join("")}</div>`;
+}
+function activarSelectorTema(raiz) {
+  raiz.querySelectorAll("[data-tema]").forEach((b) => (b.onclick = () => {
+    guardar("tema", b.dataset.tema === "auto" ? null : b.dataset.tema);
+    aplicarTema(b.dataset.tema);
+    raiz.querySelectorAll("[data-tema]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  }));
+}
+aplicarTema(leer("tema"));
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => aplicarTema(leer("tema")));
+
 // ─── Hoja inferior ────────────────────────────────────────────────────────────
 function abrirHoja(html, alPintar) {
   const hoja = document.getElementById("hoja");
@@ -139,12 +188,44 @@ function pantallaLogin() {
 function cerrarSesion() {
   if (S.token) fetch("/api/logout", { method: "POST", headers: { Authorization: "Bearer " + S.token } }).catch(() => { });
   S.token = null; S.usuario = null; guardar("sesion", null);
+  S.pacientes = null; S.guiada = null; document.body.classList.remove("modo-fisio");
   inicio(pantallaLogin);
 }
 
 function entrar() {
+  document.body.classList.toggle("modo-fisio", S.usuario.rol === "fisio");
   if (S.usuario.rol === "fisio") inicio(() => fisioInicio());
+  else if (!leer("bienvenida:" + S.usuario.nombre)) inicio(pantallaBienvenida);
   else inicio(() => pacienteInicio("hoy"));
+}
+
+// ─── Bienvenida (3 pantallas, solo la primera vez) ────────────────────────────
+const PASOS_BIENVENIDA = [
+  { icono: "actividad", titulo: "Así funciona", texto: "Tu fisioterapeuta te pauta los ejercicios. Tú los haces en casa delante del móvil y la app te corrige en directo.",
+    puntos: [["play-circulo", "Mira el vídeo del ejercicio"], ["camara", "Hazlo delante de la cámara"], ["check-circulo", "La app cuenta y te corrige"]] },
+  { icono: "movil", titulo: "Coloca bien el móvil", texto: "Para que la app te vea entero y pueda medir tus ángulos:",
+    puntos: [["movil", "Apóyalo de pie a 2-3 metros, a la altura de la cadera"], ["usuario", "Que se te vea de la cabeza a los pies"], ["sol", "Buena luz y ropa ajustada"]] },
+  { icono: "escudo", titulo: "Tu privacidad", texto: "Tus datos de salud son tuyos.",
+    puntos: [["usuario", "Solo tu fisioterapeuta ve tus vídeos e informes"], ["descargar", "Puedes descargar tus datos cuando quieras"], ["escudo", "Nada se usa para publicidad"]] },
+];
+function pantallaBienvenida(paso = 0) {
+  const p = PASOS_BIENVENIDA[paso], ultimo = paso === PASOS_BIENVENIDA.length - 1;
+  const terminar = () => { guardar("bienvenida:" + S.usuario.nombre, true); inicio(() => pacienteInicio("hoy")); };
+  pintar(`<main class="pantalla bienvenida">
+    <div class="bv-cab">${ultimo ? "" : `<button class="btn-texto" id="bv-saltar">Saltar</button>`}</div>
+    <div class="bv-cuerpo">
+      <div class="bv-ilustracion">${ic(p.icono)}</div>
+      <h2>${p.titulo}</h2><p>${p.texto}</p>
+      <ul class="bv-puntos">${p.puntos.map(([i, t]) => `<li><span class="ic-caja">${ic(i, "peq")}</span>${t}</li>`).join("")}</ul>
+    </div>
+    <div class="bv-pie">
+      <div class="bv-puntitos" aria-label="Paso ${paso + 1} de ${PASOS_BIENVENIDA.length}">${PASOS_BIENVENIDA.map((_, i) => `<i class="${i === paso ? "on" : ""}"></i>`).join("")}</div>
+      <button class="btn" id="bv-seguir">${ultimo ? "Empezar" : "Siguiente"}</button>
+    </div></main>`, () => {
+    document.getElementById("bv-seguir").onclick = () => (ultimo ? terminar() : pantallaBienvenida(paso + 1));
+    const saltar = document.getElementById("bv-saltar");
+    if (saltar) saltar.onclick = terminar;
+  });
 }
 
 // ─── Consentimiento (RGPD) ────────────────────────────────────────────────────
@@ -191,7 +272,9 @@ function hojaCuentaPaciente() {
       <button class="item" id="c-pass"><span class="emoji">${ic("llave")}</span><span class="txt"><b>Cambiar contraseña</b></span><span class="flecha">${ic("flecha")}</span></button>
       <button class="item" id="c-priv"><span class="emoji">${ic("escudo")}</span><span class="txt"><b>Privacidad y mis datos</b><small>Descargar, retirar consentimiento</small></span><span class="flecha">${ic("flecha")}</span></button>
     </div>
-    <div class="fila-btns" style="margin-top:14px"><button class="btn secundario" id="c-salir">${ic("salir", "peq")} Cerrar sesión</button></div>`, (hoja) => {
+    ${selectorTema()}
+    <div class="fila-btns" style="margin-top:18px"><button class="btn secundario" id="c-salir">${ic("salir", "peq")} Cerrar sesión</button></div>`, (hoja) => {
+    activarSelectorTema(hoja);
     hoja.querySelector("#c-salir").onclick = () => { cerrarHoja(); cerrarSesion(); };
     hoja.querySelector("#c-pass").onclick = hojaPasswordPaciente;
     hoja.querySelector("#c-priv").onclick = hojaPrivacidadPaciente;
@@ -272,12 +355,70 @@ function resumen(historial) {
   };
 }
 
+function calcularRacha(historial) {
+  // Días seguidos entrenando (hoy o ayer cuentan para no romper la racha por la mañana)
+  const diasHechos = new Set(historial.map((s) => s.fecha.slice(0, 10)));
+  let racha = 0;
+  for (let d = new Date(), i = 0; i < 400; i++, d.setDate(d.getDate() - 1)) {
+    if (diasHechos.has(isoLocal(d))) racha++; else if (i > 0) break;
+  }
+  return racha;
+}
+function mejorRacha(historial) {
+  const dias = [...new Set(historial.map((s) => s.fecha.slice(0, 10)))].sort();
+  let mejor = 0, actual = 0, previo = null;
+  for (const d of dias) {
+    actual = previo && (new Date(d) - new Date(previo)) / 864e5 === 1 ? actual + 1 : 1;
+    mejor = Math.max(mejor, actual); previo = d;
+  }
+  return mejor;
+}
+
+/* Semana actual (lunes a domingo) con los días entrenados */
+function semanaHtml(historial) {
+  const hechos = new Set(historial.map((s) => s.fecha.slice(0, 10)));
+  const hoy = new Date(), lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  const hoyIso = isoLocal(hoy);
+  let n = 0;
+  const dias = DIAS_CORTOS.map((letra, i) => {
+    const d = new Date(lunes); d.setDate(lunes.getDate() + i);
+    const iso = isoLocal(d), hecho = hechos.has(iso);
+    if (hecho) n++;
+    return `<div class="dia-sem ${hecho ? "hecho" : ""} ${iso === hoyIso ? "hoy" : ""} ${iso > hoyIso ? "futuro" : ""}">
+      <span>${letra}</span><i>${hecho ? ic("check", "mini") : d.getDate()}</i></div>`;
+  }).join("");
+  return `<div class="tarjeta semana-tira"><div class="semana-cab"><b>Esta semana</b><small>${n} ${n === 1 ? "día" : "días"} entrenados</small></div>
+    <div class="dias-sem">${dias}</div></div>`;
+}
+
+/* Logros: medallas por constancia y volumen (se calculan del historial, no se guardan) */
+function logros(historial) {
+  const series = historial.length, racha = mejorRacha(historial);
+  const perfectas = historial.filter((s) => !s.errores && s.repeticiones > 0).length;
+  const lista = [
+    ["llama", "Primer paso", "Tu primera serie", series >= 1],
+    ["llama", "3 días seguidos", "Racha de 3 días", racha >= 3],
+    ["llama", "Una semana entera", "Racha de 7 días", racha >= 7],
+    ["medalla", "Constancia", "Racha de 14 días", racha >= 14],
+    ["check-circulo", "Técnica perfecta", "Una serie sin errores", perfectas >= 1],
+    ["diana", "10 series", "10 series hechas", series >= 10],
+    ["diana", "50 series", "50 series hechas", series >= 50],
+    ["medalla", "100 series", "100 series hechas", series >= 100],
+  ];
+  const conseguidos = lista.filter((l) => l[3]).length;
+  return `<h3 class="seccion-tit">Logros <small>${conseguidos}/${lista.length}</small></h3>
+    <div class="logros">${lista.map(([i, t, d, ok]) => `<div class="logro ${ok ? "ok" : ""}" title="${esc(d)}">
+      <span class="medalla">${ic(i)}</span><b>${t}</b><small>${ok ? "Conseguido" : d}</small></div>`).join("")}</div>`;
+}
+
 function tabs(actual, opciones) {
   return `<nav class="tabs" style="--n:${opciones.length}">${opciones.map(([id, icono, texto]) =>
     `<button data-tab="${id}" ${id === actual ? 'aria-current="page"' : ""}>${ic(icono)}${texto}</button>`).join("")}</nav>`;
 }
 
 async function pacienteInicio(tab) {
+  S.guiada = null;
   pintar(`<div class="cargando">Cargando…</div>`);
   let lista, historial, plan;
   try { [lista, historial, plan] = await Promise.all([cargarEjercicios(), api("/api/mi-historial"), api("/api/mi-plan")]); }
@@ -287,13 +428,7 @@ async function pacienteInicio(tab) {
   const r = resumen(historial);
   const cuenta = `<button class="btn-icono avatar" id="cuenta" aria-label="Mi cuenta" title="Mi cuenta">${esc((S.usuario.nombre || "?").slice(0, 1).toUpperCase())}</button>`;
   const pestañas = tabs(tab, [["hoy", "actividad", "Hoy"], ["progreso", "tendencia", "Mi progreso"]]);
-  // Días seguidos entrenando (hoy o ayer cuentan para no romper la racha por la mañana)
-  const diasHechos = new Set(historial.map((s) => s.fecha.slice(0, 10)));
-  let racha = 0;
-  for (let d = new Date(), i = 0; i < 400; i++, d.setDate(d.getDate() - 1)) {
-    const iso = new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
-    if (diasHechos.has(iso)) racha++; else if (i > 0) break;
-  }
+  const racha = calcularRacha(historial);
 
   if (tab === "hoy") {
     const ultima = {};
@@ -358,12 +493,15 @@ async function pacienteInicio(tab) {
     pintar(`<main class="pantalla">${cabecera(null, { atras: false, derecha: cuenta })}
       <div class="contenido">
         <div class="saludo"><p class="fecha">${hoyLargo()}</p><h2>Hola, ${esc(S.usuario.nombre)}</h2></div>
+        ${plan.nota ? `<div class="nota-fisio"><span class="ic-caja">${ic("enviar", "peq")}</span><div>
+          <small>Mensaje de tu fisioterapeuta · ${fechaCorta(plan.nota.fecha)}</small><p>${esc(plan.nota.texto)}</p></div></div>` : ""}
         ${heroe}
+        ${semanaHtml(historial)}
         ${bloqueListas}
       </div>${pestañas}</main>`, () => {
       app.querySelectorAll("[data-ej]").forEach((b) => (b.onclick = () => ir(() => detalleEjercicio(b.dataset.ej))));
       const empezar = document.getElementById("empezar-hoy");
-      if (empezar) empezar.onclick = () => ir(() => detalleEjercicio(pendientesLista[0].ejercicio));
+      if (empezar) empezar.onclick = () => empezarSesionGuiada(pendientesLista);
     });
   } else {
     const hechos = lista.filter((e) => historial.some((s) => s.ejercicio === e.nombre));
@@ -376,6 +514,7 @@ async function pacienteInicio(tab) {
         </div>
         ${hechos.length ? bloqueProgreso(hechos.map((e) => e.nombre), historial)
         : vacioHtml("tendencia", "Cuando completes tu primera serie verás aquí tu evolución.")}
+        ${logros(historial)}
       </div>${pestañas}</main>`, () => activarProgreso());
   }
   document.getElementById("cuenta").onclick = hojaCuentaPaciente;
@@ -483,15 +622,15 @@ async function detalleEjercicio(nombre, mensajeError) {
   });
 }
 
-function elegirFuente(ej, nivel) {
+function elegirFuente(ej, nivel, { guiada = false } = {}) {
   const hayCamara = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-  abrirHoja(`<h2>¿Cómo quieres hacer la serie?</h2>
+  abrirHoja(`<h2>${guiada ? "¿Cómo quieres hacer la sesión?" : "¿Cómo quieres hacer la serie?"}</h2>
     <div class="lista">
       ${hayCamara ? `
       <button class="item" data-fuente="user"><span class="emoji">${ic("selfie")}</span><span class="txt"><b>Cámara frontal</b><small>Apoya el móvil y ponte delante</small></span><span class="flecha">${ic("flecha")}</span></button>
       <button class="item" data-fuente="environment"><span class="emoji">${ic("camara")}</span><span class="txt"><b>Cámara trasera</b><small>Si otra persona te graba</small></span><span class="flecha">${ic("flecha")}</span></button>`
       : `<div class="alerta">Para usar la cámara abre la app con <b>https</b> o desde este mismo ordenador (localhost).</div>`}
-      <button class="item" data-fuente="archivo"><span class="emoji">${ic("subir")}</span><span class="txt"><b>Analizar un vídeo</b><small>Un vídeo grabado de tu ejercicio</small></span><span class="flecha">${ic("flecha")}</span></button>
+      ${guiada ? "" : `<button class="item" data-fuente="archivo"><span class="emoji">${ic("subir")}</span><span class="txt"><b>Analizar un vídeo</b><small>Un vídeo grabado de tu ejercicio</small></span><span class="flecha">${ic("flecha")}</span></button>`}
       <button class="item" data-fuente="ejemplo"><span class="emoji">${ic("play-circulo")}</span><span class="txt"><b>Probar con el vídeo de ejemplo</b><small>Demostración: analiza el vídeo explicativo</small></span><span class="flecha">${ic("flecha")}</span></button>
     </div>
     <input type="file" id="archivo" accept="video/*" hidden>
@@ -500,10 +639,90 @@ function elegirFuente(ej, nivel) {
     input.onchange = () => input.files[0] && ir(() => serieDirecto(ej, nivel, { tipo: "video", url: URL.createObjectURL(input.files[0]) }));
     hoja.querySelectorAll("[data-fuente]").forEach((b) => (b.onclick = () => {
       const f = b.dataset.fuente;
+      if (guiada) { S.guiada.fuente = f; return ir(() => pasoGuiado()); }
       if (f === "archivo") return input.click();
       if (f === "ejemplo") return ir(() => serieDirecto(ej, nivel, { tipo: "video", url: ej.video_analisis || ej.video }));
       ir(() => serieDirecto(ej, nivel, { tipo: "camara", modo: f }));
     }));
+  });
+}
+
+// ─── Sesión guiada: encadena todas las series pendientes de hoy ───────────────
+const ejDe = (nombre) => S.ejercicios.find((e) => e.nombre === nombre);
+function empezarSesionGuiada(pendientes) {
+  const cola = [];
+  pendientes.forEach((p) => {
+    for (let i = Math.min(p.hechas_hoy, p.series); i < p.series; i++) cola.push({ ejercicio: p.ejercicio, nivel: p.nivel, serie: i + 1, de: p.series });
+  });
+  if (!cola.length) return;
+  S.guiada = { cola, i: 0, fuente: null, inicio: Date.now(), hechas: 0 };
+  elegirFuente(ejDe(cola[0].ejercicio), cola[0].nivel, { guiada: true });
+}
+function fuenteGuiada(ej) {
+  const f = S.guiada.fuente;
+  return f === "ejemplo" ? { tipo: "video", url: ej.video_analisis || ej.video } : { tipo: "camara", modo: f };
+}
+const barraSesion = () => S.guiada
+  ? `<div class="progreso-sesion" aria-label="Serie ${S.guiada.i + 1} de ${S.guiada.cola.length}"><i style="width:${Math.round(100 * S.guiada.i / S.guiada.cola.length)}%"></i></div>` : "";
+function salirGuiada() { S.guiada = null; inicio(() => pacienteInicio("hoy")); }
+
+/* Pantalla entre series: descanso con cuenta atrás y lo que viene después */
+function pasoGuiado({ descanso = 0 } = {}) {
+  const g = S.guiada, paso = g.cola[g.i], ej = ejDe(paso.ejercicio);
+  let quedan = descanso;
+  const mmss = (t) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+  pintar(`<main class="pantalla guiada">
+    <header class="cabecera"><button class="btn-icono" id="g-salir" aria-label="Salir de la sesión">${ic("cerrar")}</button>
+      <h1>Sesión de hoy</h1><span class="etiqueta">${g.i + 1}/${g.cola.length}</span></header>
+    ${barraSesion()}
+    <div class="contenido sin-tabs">
+      ${descanso ? `<div class="descanso"><small>Descanso</small><b id="g-reloj">${mmss(quedan)}</b>
+        <span class="progreso"><i id="g-barra" style="width:100%"></i></span></div>` : ""}
+      <p class="g-sig">${descanso ? "A continuación" : "Primera serie"}</p>
+      <div class="g-tarjeta">
+        ${ej.portada ? `<img src="${ej.portada}" alt="">` : ""}
+        <div><h2>${esc(nombreVisible(ej.nombre))}</h2><p>Serie ${paso.serie} de ${paso.de} · ${esc(paso.nivel)} · ${ej.por_tiempo ? "30 segundos" : "10 repeticiones"}</p></div>
+      </div>
+      <ul class="consejos">${ej.consejos.slice(0, 2).map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
+      <div class="pie-fijo"><button class="btn" id="g-empezar">${ic("play", "peq")} ${descanso ? "Saltar descanso" : "Empezar"}</button>
+        <button class="btn fantasma" id="g-ver">Ver cómo se hace</button></div>
+    </div></main>`, () => {
+    const lanzar = () => { clearInterval(t); ir(() => serieDirecto(ej, paso.nivel, fuenteGuiada(ej)), { reemplazar: true }); };
+    const t = descanso ? setInterval(() => {
+      const reloj = document.getElementById("g-reloj");
+      if (!reloj) return clearInterval(t);
+      quedan--;
+      reloj.textContent = mmss(Math.max(0, quedan));
+      document.getElementById("g-barra").style.width = `${100 * Math.max(0, quedan) / descanso}%`;
+      if (quedan === 3) hablar(`Siguiente: ${nombreVisible(ej.nombre)}`);
+      if (quedan <= 0) lanzar();
+    }, 1000) : null;
+    document.getElementById("g-empezar").onclick = lanzar;
+    document.getElementById("g-salir").onclick = () => { clearInterval(t); salirGuiada(); };
+    document.getElementById("g-ver").onclick = () => { clearInterval(t); abrirHoja(`<h2>${esc(nombreVisible(ej.nombre))}</h2>
+      <video class="video-serie" src="${ej.video}" controls playsinline muted loop autoplay></video>
+      <button class="btn secundario" data-cerrar>Cerrar</button>`); };
+  });
+}
+
+/* Final de la sesión guiada: resumen y celebración discreta */
+async function sesionCompletada() {
+  const g = S.guiada; S.guiada = null;
+  const minutos = Math.max(1, Math.round((Date.now() - g.inicio) / 6e4));
+  let racha = 0;
+  try { racha = calcularRacha(await api("/api/mi-historial")); } catch (_) { }
+  hablar("¡Sesión completada! Buen trabajo.");
+  pintar(`<main class="pantalla resultado celebracion">
+    <div class="confeti" aria-hidden="true">${Array.from({ length: 18 }, (_, i) => `<i style="--i:${i}"></i>`).join("")}</div>
+    <div class="grande">${ic("medalla")}</div><h2>¡Sesión completada!</h2>
+    <p>Has hecho todo lo de hoy. Tu fisioterapeuta ya puede ver tus series.</p>
+    <div class="resumen-serie">
+      <div><b>${g.hechas}</b><span>series</span></div>
+      <div><b>${minutos}</b><span>minutos</span></div>
+      <div><b>${racha}</b><span>${racha === 1 ? "día seguido" : "días seguidos"}</span></div>
+    </div>
+    <div class="fila-btns"><button class="btn" id="b2">Volver al inicio</button></div></main>`, () => {
+    document.getElementById("b2").onclick = () => inicio(() => pacienteInicio("hoy"));
   });
 }
 
@@ -515,11 +734,16 @@ async function serieDirecto(ej, nivel, fuente) {
     <div class="barra-sup">
       <button class="btn-icono" id="cerrar" aria-label="Detener y salir">${ic("cerrar")}</button>
       <h2>${esc(nombreVisible(ej.nombre))} · ${esc(nivel)}</h2>
+      <button class="btn-icono" id="voz" aria-label="Voz" aria-pressed="${leer("voz") !== false}" title="Correcciones por voz">${ic("voz")}</button>
       <span class="pildora" id="errores">0/3 errores</span>
     </div>
+    ${barraSesion()}
     <div class="lienzo">
       <video id="entrada" class="oculto" playsinline muted></video>
       <img id="salida" alt="Vista de la cámara con el análisis de tu postura">
+      <div class="cuenta-grande" id="cuenta" hidden></div>
+      <div class="contador-grande" id="contador" hidden><b>0</b><span>${ej.por_tiempo ? "segundos" : "repeticiones"}</span></div>
+      <div class="consejo" id="consejo" hidden></div>
       <div class="mensaje" id="mensaje">Preparando la cámara…</div>
     </div>
     <div class="barra-inf">
@@ -530,6 +754,14 @@ async function serieDirecto(ej, nivel, fuente) {
   const salida = document.getElementById("salida");
   const mensaje = document.getElementById("mensaje");
   const pildora = document.getElementById("errores");
+  const cuentaEl = document.getElementById("cuenta"), contadorEl = document.getElementById("contador"), consejoEl = document.getElementById("consejo");
+  const botonVoz = document.getElementById("voz");
+  let consejoPrevio = "", ultimaVoz = 0, inicioSerie = null, cuentaPrevia = 0;
+  botonVoz.onclick = () => {
+    const on = botonVoz.getAttribute("aria-pressed") !== "true";
+    botonVoz.setAttribute("aria-pressed", on); guardar("voz", on);
+    if (!on) try { speechSynthesis.cancel(); } catch (_) { }
+  };
   const lienzo = document.createElement("canvas");
   const ctx = lienzo.getContext("2d");
   // Hasta 2 fotogramas en vuelo: el móvil prepara el siguiente mientras el servidor analiza el anterior
@@ -600,7 +832,30 @@ async function serieDirecto(ej, nivel, fuente) {
     queueMicrotask(enviar);
   };
 
-  ws.onopen = () => { mensaje.textContent = ""; enviar(); };
+  // Marcador grande encima del vídeo: cuenta atrás, repeticiones y la corrección del motor (texto y voz)
+  function pintarMarcador(d) {
+    const prep = d.preparacion || 0;
+    cuentaEl.hidden = !prep;
+    if (prep) {
+      cuentaEl.textContent = prep;
+      if (prep !== cuentaPrevia && prep <= 3 && botonVoz.getAttribute("aria-pressed") === "true") hablar(String(prep));
+    }
+    cuentaPrevia = prep;
+    if (d.contador != null && !prep) {
+      contadorEl.hidden = false;
+      contadorEl.querySelector("b").textContent = String(d.contador).replace(/s$/, "");
+    }
+    const consejo = (d.consejo || "").trim();
+    consejoEl.hidden = !consejo || !!prep;
+    consejoEl.textContent = consejo;
+    consejoEl.className = "consejo " + (d.estado_esqueleto || "neutro");
+    if (consejo && consejo !== consejoPrevio && !prep && botonVoz.getAttribute("aria-pressed") === "true" && Date.now() - ultimaVoz > 1800) {
+      hablar(consejo.replace(/[¡!]/g, "")); ultimaVoz = Date.now();
+    }
+    if (consejo) consejoPrevio = consejo;
+  }
+
+  ws.onopen = () => { mensaje.textContent = ""; inicioSerie = Date.now(); enviar(); };
   ws.onerror = () => { mensaje.textContent = "Se ha perdido la conexión con el servidor."; };
   ws.onmessage = (ev) => {
     if (!vivo) return;
@@ -612,7 +867,8 @@ async function serieDirecto(ej, nivel, fuente) {
     const d = JSON.parse(ev.data);
     if (d.estado === "guardado") {
       limpiar();
-      return ir(() => resultadoSerie(ej, nivel, d.resultado), { reemplazar: true });
+      const duracion = inicioSerie ? Math.round((Date.now() - inicioSerie) / 1000) : null;
+      return ir(() => resultadoSerie(ej, nivel, d.resultado, { duracion }), { reemplazar: true });
     }
     if (d.estado === "error") {
       terminado = true; limpiar(); mensaje.textContent = d.mensaje;
@@ -622,46 +878,143 @@ async function serieDirecto(ej, nivel, fuente) {
     }
     pildora.textContent = `${d.errores}/3 errores`;
     pildora.classList.toggle("mal", d.errores > 0);
+    pintarMarcador(d);
     if (d.estado === "completado" || d.estado === "cortafuegos") {
       terminado = true; mensaje.textContent = "Guardando la serie…"; return;
     }
-    if (!terminado) mensaje.textContent = d.persona_detectada ? "" : "No te veo bien. Colócate como indican los consejos.";
+    if (!terminado) mensaje.textContent = d.persona_detectada || d.preparacion ? "" : "No te veo bien. Colócate como indican los consejos.";
     enVuelo = Math.max(0, enVuelo - 1);
     queueMicrotask(enviar);
   };
 }
 
-function resultadoSerie(ej, nivel, resultado) {
+const CARAS_DOLOR = [[0, "😀", "Sin dolor"], [1, "🙂", "Leve"], [4, "😐", "Moderado"], [7, "😣", "Fuerte"], [9, "😫", "Muy fuerte"]];
+const caraDolor = (n) => CARAS_DOLOR.filter((c) => n >= c[0]).pop();
+function cuandoFue(fecha) {
+  const dias = Math.round((new Date(new Date().toISOString().slice(0, 10)) - new Date(fecha.slice(0, 10))) / 864e5);
+  if (dias <= 0) return "en la serie anterior";
+  if (dias === 1) return "ayer";
+  if (dias < 7) return "el " + DIAS[new Date(fecha.slice(0, 10) + "T12:00").getDay()];
+  return "el " + fechaCorta(fecha).replace(/ \d{4}$/, "");
+}
+
+function resultadoSerie(ej, nivel, resultado, { duracion = null } = {}) {
   const textos = {
     completado: ["check-circulo", "", "¡Serie completada!", "Muy bien hecho. Tu fisioterapeuta ya puede ver el informe y el vídeo de la serie."],
     cortafuegos: ["alerta", "ambar", "Paramos para cuidarte", "Vuelve a ver el vídeo explicativo para mejorar la técnica en el ejercicio."],
     detenido: ["guardar", "azul", "Serie guardada", "Has terminado la serie antes de tiempo. La hemos guardado igualmente."],
   };
   const [icono, tono, titulo, texto] = textos[resultado] || textos.detenido;
+  const g = S.guiada;
+  if (g) g.hechas++;
+  const siguiente = g && g.cola[g.i + 1];
   hablar(titulo);
-  pintar(`<main class="pantalla resultado">
-    <div class="grande ${tono}">${ic(icono)}</div><h2>${titulo}</h2><p>${texto}</p>
-    <div class="fila-btns">
-      ${resultado === "cortafuegos"
+  const unidad = ej.por_tiempo ? "s" : "";
+  let botones;
+  if (g) {
+    botones = `<button class="btn" id="b1">${siguiente ? `${ic("play", "peq")} Siguiente: ${esc(nombreVisible(siguiente.ejercicio))}` : `${ic("medalla", "peq")} Terminar sesión`}</button>
+      ${resultado === "cortafuegos" ? `<button class="btn secundario" id="b3">${ic("play-circulo", "peq")} Ver vídeo explicativo</button>` : ""}
+      <button class="btn fantasma" id="b2">Salir de la sesión</button>`;
+  } else {
+    botones = `${resultado === "cortafuegos"
       ? `<button class="btn" id="b1">${ic("play-circulo", "peq")} Ver vídeo explicativo</button>`
       : `<button class="btn" id="b1">${ic("repetir", "peq")} Hacer otra serie</button>`}
-      <button class="btn secundario" id="b2">Volver a mi plan</button>
-    </div></main>`, () => {
-    document.getElementById("b1").onclick = () => resultado === "cortafuegos"
-      ? ir(() => detalleEjercicio(ej.nombre, texto), { reemplazar: true })
-      : ir(() => detalleEjercicio(ej.nombre), { reemplazar: true });
-    document.getElementById("b2").onclick = () => inicio(() => pacienteInicio("hoy"));
-    // Progreso del plan de hoy en este ejercicio (si el fisio lo ha recetado)
+      <button class="btn secundario" id="b2">Volver a mi plan</button>`;
+  }
+  pintar(`<main class="pantalla resultado">
+    ${barraSesion()}
+    <div class="grande ${tono}">${ic(icono)}</div><h2>${titulo}</h2><p id="r-texto">${texto}</p>
+    <div class="resumen-serie" id="r-resumen">
+      <div><b id="r-reps">–</b><span>${ej.por_tiempo ? "segundos" : "repeticiones"}</span></div>
+      <div><b id="r-err">–</b><span>errores</span></div>
+      <div><b>${duracion != null ? `${Math.floor(duracion / 60)}:${String(duracion % 60).padStart(2, "0")}` : "–"}</b><span>duración</span></div>
+    </div>
+    <p class="comparacion" id="r-comp" hidden></p>
+    <section class="tarjeta valoracion" aria-label="Cómo te has sentido">
+      <h3>¿Has notado dolor?</h3>
+      <div class="cara-dolor" id="v-cara" aria-live="polite"><span>👆</span><small>Toca un número</small></div>
+      <div class="escala-dolor" role="group" aria-label="Dolor de 0 a 10">${Array.from({ length: 11 }, (_, n) =>
+    `<button type="button" data-dolor="${n}" style="--n:${n}" aria-pressed="false">${n}</button>`).join("")}</div>
+      <div class="escala-pie"><span>Nada</span><span>Máximo</span></div>
+      <h3>¿Cómo te ha resultado?</h3>
+      <div class="segmentado" role="group" aria-label="Esfuerzo">
+        <button type="button" data-esfuerzo="1" aria-pressed="false">Fácil</button>
+        <button type="button" data-esfuerzo="2" aria-pressed="false">Bien</button>
+        <button type="button" data-esfuerzo="3" aria-pressed="false">Difícil</button></div>
+    </section>
+    <div class="fila-btns">${botones}</div></main>`, () => {
+    const val = { dolor: null, esfuerzo: null };
+    let enviada = false;
+    const enviarValoracion = async () => {
+      if (enviada || (val.dolor == null && val.esfuerzo == null)) return;
+      enviada = true;
+      try {
+        await api("/api/valoracion", { method: "POST", body: JSON.stringify({ dolor: val.dolor ?? 0, esfuerzo: val.esfuerzo ?? 2 }) });
+        if (val.dolor >= 7) aviso("Gracias. Avisaremos a tu fisioterapeuta del dolor.");
+      } catch (_) { }
+    };
+    app.querySelectorAll("[data-dolor]").forEach((b) => (b.onclick = () => {
+      val.dolor = +b.dataset.dolor;
+      app.querySelectorAll("[data-dolor]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+      const [, cara, txt] = caraDolor(val.dolor);
+      document.getElementById("v-cara").innerHTML = `<span>${cara}</span><small>${val.dolor}/10 · ${txt}</small>`;
+    }));
+    app.querySelectorAll("[data-esfuerzo]").forEach((b) => (b.onclick = () => {
+      val.esfuerzo = +b.dataset.esfuerzo;
+      app.querySelectorAll("[data-esfuerzo]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    }));
+    const salir = async (accion) => { await enviarValoracion(); accion(); };
+    if (g) {
+      document.getElementById("b1").onclick = () => salir(() => {
+        g.i++;
+        if (g.i < g.cola.length) ir(() => pasoGuiado({ descanso: 30 }), { reemplazar: true });
+        else ir(sesionCompletada, { reemplazar: true });
+      });
+      document.getElementById("b2").onclick = () => salir(salirGuiada);
+      const b3 = document.getElementById("b3");
+      if (b3) b3.onclick = () => salir(() => { S.guiada = null; ir(() => detalleEjercicio(ej.nombre, texto), { reemplazar: true }); });
+    } else {
+      document.getElementById("b1").onclick = () => salir(() => resultado === "cortafuegos"
+        ? ir(() => detalleEjercicio(ej.nombre, texto), { reemplazar: true })
+        : ir(() => detalleEjercicio(ej.nombre), { reemplazar: true }));
+      document.getElementById("b2").onclick = () => salir(() => inicio(() => pacienteInicio("hoy")));
+    }
+    // Lo que ha medido el motor en esta serie y la comparación con la anterior del mismo ejercicio
+    api("/api/mi-historial").then((h) => {
+      const actual = h[0];
+      if (!actual || actual.ejercicio !== ej.nombre || !document.getElementById("r-reps")) return;
+      document.getElementById("r-reps").textContent = actual.repeticiones;
+      document.getElementById("r-err").textContent = actual.errores;
+      const previa = h.slice(1).find((s) => s.ejercicio === ej.nombre);
+      if (!previa) return;
+      const dif = actual.repeticiones - previa.repeticiones, difErr = previa.errores - actual.errores;
+      const cuando = cuandoFue(previa.fecha);
+      const comp = document.getElementById("r-comp");
+      const u = (n) => ej.por_tiempo ? `${n} s` : `${n} ${n === 1 ? "rep" : "reps"}`;
+      if (dif > 0) { comp.textContent = `+${u(dif)} que ${cuando}`; comp.className = "comparacion sube"; }
+      else if (dif === 0 && difErr > 0) { comp.textContent = `${difErr} ${difErr === 1 ? "error" : "errores"} menos que ${cuando}`; comp.className = "comparacion sube"; }
+      else if (dif === 0) { comp.textContent = `Igual que ${cuando}`; comp.className = "comparacion"; }
+      else { comp.textContent = `${u(-dif)} menos que ${cuando}. Hay días mejores y peores: lo importante es la constancia.`; comp.className = "comparacion"; }
+      comp.hidden = false;
+    }).catch(() => { });
+    if (g) return;
+    // Progreso del plan de hoy en este ejercicio (si el fisio lo ha recetado) y celebración si ya está todo
     api("/api/mi-plan").then((p) => {
       S.plan = p.plan;
       const item = p.plan.find((x) => x.ejercicio === ej.nombre);
       if (!item) return;
       const linea = document.createElement("p");
       linea.className = "receta";
-      linea.textContent = item.completado_hoy
-        ? `Has completado las ${item.series} series de hoy de ${nombreVisible(ej.nombre)}.`
-        : `Llevas ${item.hechas_hoy} de ${item.series} series de hoy de ${nombreVisible(ej.nombre)}.`;
-      document.querySelector(".resultado > p")?.after(linea);
+      const todo = p.plan.length && p.plan.every((x) => x.completado_hoy);
+      linea.textContent = todo ? "¡Has completado todo el plan de hoy!"
+        : item.completado_hoy ? `Has completado las ${item.series} series de hoy de ${nombreVisible(ej.nombre)}.`
+          : `Llevas ${item.hechas_hoy} de ${item.series} series de hoy de ${nombreVisible(ej.nombre)}.`;
+      document.getElementById("r-texto")?.after(linea);
+      if (todo && item.hechas_hoy === item.series) {
+        const main = document.querySelector(".resultado");
+        main?.classList.add("celebracion");
+        main?.insertAdjacentHTML("afterbegin", `<div class="confeti" aria-hidden="true">${Array.from({ length: 18 }, (_, i) => `<i style="--i:${i}"></i>`).join("")}</div>`);
+      }
     }).catch(() => { });
   });
 }
@@ -679,25 +1032,26 @@ async function fisioInicio() {
   // Pacientes que necesitan que el fisio haga algo (alertas graves o medias), los más urgentes primero
   const urgencia = (p) => (p.alertas.some((a) => a.gravedad === "alta") ? 0 : p.alertas.some((a) => a.gravedad === "media") ? 1 : 2);
   const atencion = pacientes.filter((p) => urgencia(p) < 2).sort((a, b) => urgencia(a) - urgencia(b));
+  S.pacientes = pacientes;
   pintar(`<main class="pantalla">${cabecera("Mis pacientes", { atras: false, derecha: ajustes })}
-    <div class="contenido sin-tabs">
+    <div class="contenido sin-tabs tablero">
+      <section class="col-resumen">
       ${S.usuario.clinica ? `<p class="clinica">${ic("clinica", "mini")} ${esc(S.usuario.clinica)}</p>` : ""}
-      <div class="kpis" style="margin:6px 0 4px">
+      ${atencion.length ? `<h3 class="seccion-tit" style="margin-top:4px">Requieren atención <small>${atencion.length}</small></h3>
+      <div class="atencion">${atencion.slice(0, 6).map(tarjetaAtencion).join("")}</div>`
+      : `<div class="todo-bien">${ic("check-circulo")}<span><b>Todo en orden</b>Ningún paciente necesita que hagas nada ahora.</span></div>`}
+      <div class="kpis" style="margin:16px 0 4px">
         <div class="kpi">${ic("usuarios", "peq")}<b>${pacientes.length}</b><span>pacientes</span></div>
         <div class="kpi">${ic("actividad", "peq")}<b>${activos}</b><span>activos esta semana</span></div>
         <div class="kpi">${ic("diana", "peq")}<b>${adhMedia ?? "–"}${adhMedia != null ? "%" : ""}</b><span>adherencia media al plan</span></div>
       </div>
-      ${atencion.length ? `<h3 class="seccion-tit">Requieren atención (${atencion.length})</h3>
-      <div class="atencion">${atencion.slice(0, 5).map((p) => {
-        const a = p.alertas.find((x) => x.gravedad !== "info");
-        return `<button class="aviso-pac ${a.gravedad}" data-pac="${p.id}"><span class="punto"></span>
-          <span class="txt"><b>${esc(p.nombre)}</b><span>${esc(a.texto)}${p.alertas.filter((x) => x.gravedad !== "info").length > 1 ? " · y más" : ""}</span></span>
-          <span class="flecha">${ic("flecha")}</span></button>`;
-      }).join("")}</div>` : ""}
+      </section>
+      <section class="col-lista">
       <h3 class="seccion-tit">Todos</h3>
       <div class="buscador-caja">${ic("buscar", "peq")}<input class="buscador" id="buscar" type="search" placeholder="Buscar paciente" aria-label="Buscar paciente"></div>
       <div class="lista" id="lista"></div>
       <div class="pie-fijo"><button class="btn" id="nuevo">${ic("usuario-mas", "peq")} Nuevo paciente</button></div>
+      </section>
     </div></main>`, () => {
     const pintarLista = (filtro = "") => {
       const f = filtro.trim().toLowerCase();
@@ -709,15 +1063,109 @@ async function fisioInicio() {
             <small>${p.edad ? p.edad + " años · " : ""}${p.series} series · ${p.ultima ? "última: " + fechaCorta(p.ultima) : "sin sesiones"}</small></span>
           ${etiquetaAdherencia(p.adherencia)}</button>`).join("")
         : vacioHtml("usuarios", pacientes.length ? "Ningún paciente coincide." : "Aún no tienes pacientes. Da de alta el primero.");
-      app.querySelectorAll("[data-pac]").forEach((b) => (b.onclick = () => ir(() => fisioPaciente(+b.dataset.pac, "plan"))));
+      app.querySelectorAll("#lista [data-pac]").forEach((b) => (b.onclick = () => ir(() => fisioPaciente(+b.dataset.pac, "plan"))));
     };
     pintarLista();
+    activarAtencion(app);
     document.getElementById("buscar").oninput = (e) => pintarLista(e.target.value);
     document.getElementById("nuevo").onclick = hojaNuevoPaciente;
     document.getElementById("ajustes").onclick = hojaAjustesFisio;
     document.getElementById("metricas").onclick = () => ir(fisioMetricas);
   });
 }
+
+/* Bandeja «Requieren atención»: el motivo y la acción más útil a un toque */
+const BAJAR_NIVEL = { avanzado: "intermedio", intermedio: "principiante" };
+function tarjetaAtencion(p) {
+  const reales = p.alertas.filter((x) => x.gravedad !== "info");
+  const a = reales[0];
+  const acciones = [];
+  if (a.tipo === "sin_sesiones") acciones.push(`<button data-acc="invitar" data-id="${p.id}">${ic("qr", "mini")} Reenviar acceso</button>`);
+  if ((a.tipo === "tecnica" || a.tipo === "dolor") && a.ejercicio)
+    acciones.push(`<button data-acc="bajar" data-id="${p.id}" data-ej="${esc(a.ejercicio)}">${ic("tendencia", "mini")} Bajar nivel</button>`);
+  if (a.tipo === "inactivo" || a.tipo === "adherencia_baja" || a.tipo === "dolor")
+    acciones.push(`<button data-acc="nota" data-id="${p.id}">${ic("enviar", "mini")} Mensaje</button>`);
+  acciones.push(`<button data-acc="plan" data-id="${p.id}">${ic("plan", "mini")} Ajustar plan</button>`);
+  return `<div class="aviso-pac ${a.gravedad} con-acciones">
+    <button class="aviso-cab" data-acc="ver" data-id="${p.id}">${avatar(p.nombre)}
+      <span class="txt"><b>${esc(p.nombre)}</b><span>${esc(a.texto)}${reales.length > 1 ? ` · y ${reales.length - 1} más` : ""}</span></span>
+      <span class="flecha">${ic("flecha")}</span></button>
+    <div class="acciones-rapidas">${acciones.join("")}</div></div>`;
+}
+function activarAtencion(raiz) {
+  raiz.querySelectorAll("[data-acc]").forEach((b) => (b.onclick = async () => {
+    const id = +b.dataset.id, p = (S.pacientes || []).find((x) => x.id === id) || { nombre: "" };
+    const acc = b.dataset.acc;
+    if (acc === "ver" || acc === "plan") return ir(() => fisioPaciente(id, "plan"));
+    if (acc === "nota") {
+      const d = await api(`/api/fisio/pacientes/${id}/historial`).catch(() => ({}));
+      return hojaNota(id, p.nombre, d.nota && d.nota.texto, () => aviso(`Mensaje enviado a ${p.nombre}`));
+    }
+    b.disabled = true;
+    try {
+      if (acc === "invitar") hojaInvitacion(p.nombre, await api(`/api/fisio/pacientes/${id}/invitacion`, { method: "POST" }));
+      if (acc === "bajar") {
+        const d = await api(`/api/fisio/pacientes/${id}/historial`);
+        const item = d.plan.find((x) => x.ejercicio === b.dataset.ej);
+        if (!item) { aviso(`${nombreVisible(b.dataset.ej)} no está en su plan`); return ir(() => fisioPaciente(id, "plan")); }
+        const plan = d.plan.map((x) => ({ ejercicio: x.ejercicio, nivel: x.nivel, series: x.series, dias_semana: x.dias_semana }));
+        const it = plan.find((x) => x.ejercicio === b.dataset.ej);
+        if (BAJAR_NIVEL[it.nivel]) it.nivel = BAJAR_NIVEL[it.nivel]; else it.series = Math.max(1, it.series - 1);
+        await api(`/api/fisio/pacientes/${id}/plan`, { method: "PUT", body: JSON.stringify({ plan }) });
+        aviso(`${nombreVisible(it.ejercicio)}: ${BAJAR_NIVEL[item.nivel] ? "nivel " + it.nivel : it.series + " series al día"}`);
+      }
+    } catch (e) { aviso(e.message); }
+    b.disabled = false;
+  }));
+}
+
+/* Mensaje corto del fisio que el paciente ve al abrir la app */
+const SUGERENCIAS_NOTA = ["¡Muy bien esta semana! Sigue así.", "Si notas dolor, baja el ritmo y avísame.",
+  "Intenta no saltarte días: mejor poco cada día.", "Cuida la técnica antes que la velocidad."];
+function hojaNota(id, nombre, actual, alGuardar) {
+  abrirHoja(`<h2>Mensaje para ${esc(nombre)}</h2>
+    <p class="ayuda" style="margin-top:-6px">Lo verá en su pantalla de inicio al abrir la app.</p>
+    <div class="chips" style="margin-bottom:10px">${SUGERENCIAS_NOTA.map((t) => `<button type="button" class="chip" data-sug="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+    <div class="campo"><textarea id="nota-txt" maxlength="280" rows="4" placeholder="Escribe un mensaje corto">${esc(actual || "")}</textarea>
+      <small class="ayuda" id="nota-cuenta"></small></div>
+    <div class="fila-btns"><button class="btn" id="nota-guardar">${ic("enviar", "peq")} Guardar mensaje</button>
+      ${actual ? `<button class="btn fantasma" id="nota-quitar">Quitar mensaje</button>` : `<button class="btn fantasma" data-cerrar>Cancelar</button>`}</div>`, (hoja) => {
+    const txt = hoja.querySelector("#nota-txt"), cuenta = hoja.querySelector("#nota-cuenta");
+    const contar = () => (cuenta.textContent = `${txt.value.length}/280`);
+    txt.oninput = contar; contar();
+    hoja.querySelectorAll("[data-sug]").forEach((c) => (c.onclick = () => { txt.value = c.dataset.sug; contar(); txt.focus(); }));
+    const enviar = async (texto) => {
+      try {
+        const r = await api(`/api/fisio/pacientes/${id}/nota`, { method: "PUT", body: JSON.stringify({ texto }) });
+        cerrarHoja(); alGuardar && alGuardar(r.nota);
+      } catch (e) { aviso(e.message); }
+    };
+    hoja.querySelector("#nota-guardar").onclick = () => enviar(txt.value);
+    const quitar = hoja.querySelector("#nota-quitar");
+    if (quitar) quitar.onclick = () => enviar("");
+  });
+}
+
+/* Escritorio (pantallas anchas): la lista de pacientes queda a la izquierda de la ficha */
+const esEscritorio = () => matchMedia("(min-width: 1000px)").matches;
+function conLateral(html, id) {
+  if (!esEscritorio() || !S.pacientes) return html;
+  return `<div class="escritorio"><aside class="lateral">
+      <div class="lateral-cab"><button class="btn-texto" data-lat-inicio>${ic("usuarios", "peq")} Mis pacientes</button></div>
+      <div class="lista">${S.pacientes.map((p) => `<button class="item ${p.id === id ? "sel" : ""}" data-lat="${p.id}">${avatar(p.nombre)}
+        <span class="txt"><b>${esc(p.nombre)}</b><small>${p.ultima ? "última: " + fechaCorta(p.ultima) : "sin sesiones"}</small></span>
+        ${p.alertas.some((a) => a.gravedad === "alta") ? `<span class="punto-alerta" title="Requiere atención"></span>` : etiquetaAdherencia(p.adherencia)}</button>`).join("")}</div>
+    </aside><div class="principal">${html}</div></div>`;
+}
+function activarLateral() {
+  app.querySelectorAll("[data-lat]").forEach((b) => (b.onclick = () => ir(() => fisioPaciente(+b.dataset.lat, "plan"), { reemplazar: true })));
+  const ini = app.querySelector("[data-lat-inicio]");
+  if (ini) ini.onclick = () => inicio(() => fisioInicio());
+}
+// Al pasar de móvil a escritorio (o al revés) se repinta la vista actual
+matchMedia("(min-width: 1000px)").addEventListener?.("change", () => {
+  if (S.usuario && S.usuario.rol === "fisio" && pila.length && !document.querySelector(".directo")) pila[pila.length - 1]();
+});
 
 function etiquetaAdherencia(adh) {
   if (adh == null) return `<span class="adh" title="Sin plan asignado">sin plan</span>`;
@@ -759,6 +1207,8 @@ function hojaNuevoPaciente() {
 
 function hojaAjustesFisio() {
   abrirHoja(`<h2>Ajustes</h2>
+    ${selectorTema()}
+    <h3 class="ajuste-tit">Contraseña</h3>
     <form id="f-pass" novalidate>
       <div class="campo"><label for="a-act">Contraseña actual</label><input id="a-act" type="password" autocomplete="current-password"></div>
       <div class="dos-col">
@@ -771,6 +1221,7 @@ function hojaAjustesFisio() {
         <button class="btn secundario" type="button" id="salir">${ic("salir", "peq")} Cerrar sesión</button>
       </div>
     </form>`, (hoja) => {
+    activarSelectorTema(hoja);
     hoja.querySelector("#salir").onclick = () => { cerrarHoja(); cerrarSesion(); };
     hoja.querySelector("#f-pass").onsubmit = async (e) => {
       e.preventDefault();
@@ -812,13 +1263,15 @@ async function fisioPaciente(id, tab) {
       return `<div class="tarjeta dia"><h3>${fechaCorta(d)} <span class="etiqueta">${porDia[d].length} ${porDia[d].length === 1 ? "serie" : "series"}</span></h3>
         ${Object.entries(porEj).map(([ej, lista]) => lista.map((s, i) => `
           <div class="serie"><span><b>${esc(nombreVisible(ej))}</b> · serie ${i + 1}<br>
-            <small class="etiqueta ${s.errores ? "mal" : "ok"}">${s.repeticiones}${esPorTiempo(ej) ? "s" : (s.repeticiones === 1 ? " rep" : " reps")} · ${s.errores} ${s.errores === 1 ? "error" : "errores"} · ${esc(s.nivel)}</small></span>
+            <small class="etiqueta ${s.errores ? "mal" : "ok"}">${s.repeticiones}${esPorTiempo(ej) ? "s" : (s.repeticiones === 1 ? " rep" : " reps")} · ${s.errores} ${s.errores === 1 ? "error" : "errores"} · ${esc(s.nivel)}</small>
+            ${s.dolor != null ? `<small class="etiqueta ${s.dolor >= 7 ? "mal" : ""}">dolor ${s.dolor}/10 · ${["", "fácil", "bien", "difícil"][s.esfuerzo] || ""}</small>` : ""}</span>
             <button data-serie='${esc(JSON.stringify({ fecha: d, ejercicio: ej, idx: i, ts: s.fecha }))}'>${ic("video", "mini")} Informe</button></div>`).join("")).join("")}
       </div>`;
     }).join("")}</div>` : vacio;
   }
 
-  pintar(`<main class="pantalla">${cabecera(nombre, { derecha: botonPdf(id) })}<div class="contenido">${cuerpo}</div>${pestañas}</main>`, () => {
+  pintar(conLateral(`<main class="pantalla">${cabecera(nombre, { derecha: botonPdf(id) })}<div class="contenido">${cuerpo}</div>${pestañas}</main>`, id), () => {
+    activarLateral();
     activarProgreso();
     app.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => ir(() => fisioPaciente(id, b.dataset.tab), { reemplazar: true })));
     app.querySelectorAll("[data-serie]").forEach((b) => (b.onclick = () => hojaSerie(id, JSON.parse(b.dataset.serie))));
@@ -829,6 +1282,7 @@ async function fisioPaciente(id, tab) {
 async function fisioPlan(id, datos, pestañas) {
   const lista = await cargarEjercicios();
   const { nombre, plan, adherencia, alertas, consentimiento } = datos;
+  let nota = datos.nota;
   // Estado editable: un registro por ejercicio del catálogo
   const estado = {};
   lista.forEach((e) => (estado[e.nombre] = { activo: false, nivel: "principiante", series: 3, dias_semana: 3 }));
@@ -842,7 +1296,7 @@ async function fisioPlan(id, datos, pestañas) {
 
   const filas = lista.map((e) => {
     const s = estado[e.nombre], p = porEj[e.nombre];
-    return `<div class="fila-plan ${s.activo ? "activa" : ""}" data-fila="${esc(e.nombre)}">
+    return `<div class="fila-plan ${s.activo ? "activa" : ""}" data-fila="${esc(e.nombre)}" data-zona="${ZONA_EJ[e.nombre] || "otros"}">
       <div class="cab">${miniatura(e.nombre)}<b>${esc(nombreVisible(e.nombre))}
         ${p ? `<br><small class="receta" style="font-weight:400">${p.hechas_semana}/${p.objetivo_semana} series esta semana</small>` : ""}</b>
         <label class="interruptor"><input type="checkbox" data-activo="${esc(e.nombre)}" ${s.activo ? "checked" : ""} aria-label="Incluir ${esc(nombreVisible(e.nombre))} en el plan"><span></span></label></div>
@@ -855,15 +1309,22 @@ async function fisioPlan(id, datos, pestañas) {
   }).join("");
 
   const alertasReales = alertas.filter((a) => a.tipo !== "sin_plan");
-  pintar(`<main class="pantalla">${cabecera(nombre, { derecha: botonPdf(id) })}<div class="contenido">
+  const notaHtml = () => `<div class="tarjeta nota-edit">
+      <span class="ic-caja">${ic("enviar", "peq")}</span>
+      <div><b>Mensaje para ${esc(nombre)}</b><p>${nota ? `«${esc(nota.texto)}» · ${fechaCorta(nota.fecha)}` : "Escríbele algo corto: lo verá al abrir la app."}</p></div>
+      <button class="btn secundario" id="nota">${nota ? "Editar" : "Escribir"}</button></div>`;
+  pintar(conLateral(`<main class="pantalla">${cabecera(nombre, { derecha: botonPdf(id) })}<div class="contenido">
     ${plan.length ? `<div class="tarjeta semana" style="margin-top:6px">
       <div class="anillo" style="--p:${adherencia ?? 0}"><b>${adherencia ?? 0}%</b></div>
       <div><b>Adherencia al plan</b><p>Series hechas de las recetadas en los últimos 7 días</p></div></div>`
       : `<div class="alerta" style="margin-top:6px">${ic("info")}<span>${esc(nombre)} todavía no tiene plan. Activa los ejercicios que debe hacer y pulsa <b>Guardar plan</b>.</span></div>`}
     ${alertasReales.length ? `<h3 class="seccion-tit">Alertas</h3><div class="atencion">${alertasReales.map((a) =>
         `<div class="aviso-pac ${a.gravedad}"><span class="punto"></span><span class="txt">${esc(a.texto)}</span></div>`).join("")}</div>` : ""}
-    <h3 class="seccion-tit">Ejercicios recetados</h3>
-    <div class="lista">${filas}</div>
+    <div id="zona-nota">${notaHtml()}</div>
+    <h3 class="seccion-tit">Ejercicios recetados <button class="btn-texto" id="plantillas">${ic("plan", "mini")} Usar plantilla</button></h3>
+    <div class="chips" role="group" aria-label="Zona del cuerpo">${ZONAS.map(([z, t], i) =>
+      `<button class="chip" data-zona-f="${z}" aria-pressed="${i === 0}">${t}</button>`).join("")}</div>
+    <div class="lista" id="filas-plan">${filas}</div>
     <div class="pie-fijo" style="bottom:calc(70px + var(--seguro-abajo))"><button class="btn" id="guardar-plan">${ic("guardar", "peq")} Guardar plan</button></div>
     <div class="tarjeta acceso">
       <div><b>${ic("qr", "peq")} Acceso del paciente</b><p>Envíale un enlace o enséñale el QR para que entre desde su móvil y cree su contraseña.</p></div>
@@ -875,7 +1336,8 @@ async function fisioPlan(id, datos, pestañas) {
       <p>Borrar al paciente elimina para siempre sus sesiones, informes y vídeos (derecho de supresión).</p>
       <button class="btn borde-rojo" id="borrar">${ic("papelera", "peq")} Borrar paciente y todos sus datos</button>
     </div>
-  </div>${pestañas}</main>`, () => {
+  </div>${pestañas}</main>`, id), () => {
+    activarLateral();
     const refrescar = (ej) => {
       const fila = app.querySelector(`[data-fila="${CSS.escape(ej)}"]`);
       fila.classList.toggle("activa", estado[ej].activo);
@@ -896,6 +1358,34 @@ async function fisioPlan(id, datos, pestañas) {
       } catch (e) { aviso(e.message); ev.target.disabled = false; }
     };
     document.getElementById("borrar").onclick = () => hojaBorrarPaciente(id, nombre);
+    const activarNota = () => (document.getElementById("nota").onclick = () => hojaNota(id, nombre, nota && nota.texto, (n) => {
+      nota = n; document.getElementById("zona-nota").innerHTML = notaHtml(); activarNota();
+      aviso(n ? `${nombre} verá tu mensaje al abrir la app` : "Mensaje quitado");
+    }));
+    activarNota();
+    app.querySelectorAll("[data-zona-f]").forEach((c) => (c.onclick = () => {
+      const z = c.dataset.zonaF;
+      app.querySelectorAll("[data-zona-f]").forEach((x) => x.setAttribute("aria-pressed", x === c));
+      app.querySelectorAll("#filas-plan [data-fila]").forEach((f) => (f.hidden = z !== "todos" && f.dataset.zona !== z));
+    }));
+    document.getElementById("plantillas").onclick = () => abrirHoja(`<h2>Plantillas de plan</h2>
+      <p class="ayuda" style="margin-top:-6px">Un punto de partida por patología. Después ajústalo a ${esc(nombre)} y pulsa <b>Guardar plan</b>.</p>
+      <div class="lista">${PLANTILLAS.map((t, i) => `<button class="item" data-plantilla="${i}"><span class="emoji">${ic("plan")}</span>
+        <span class="txt"><b>${esc(t.nombre)}</b><small>${esc(t.desc)} · ${t.plan.map((x) => nombreVisible(x[0])).join(", ")}</small></span>
+        <span class="flecha">${ic("flecha")}</span></button>`).join("")}</div>
+      <button class="btn fantasma" data-cerrar style="margin-top:8px">Cancelar</button>`, (hoja) => {
+      hoja.querySelectorAll("[data-plantilla]").forEach((b) => (b.onclick = () => {
+        const t = PLANTILLAS[+b.dataset.plantilla];
+        Object.keys(estado).forEach((ej) => (estado[ej].activo = false));
+        t.plan.forEach(([ej, nivel, series, dias]) => estado[ej] && Object.assign(estado[ej], { activo: true, nivel, series, dias_semana: dias }));
+        Object.keys(estado).forEach((ej) => {
+          app.querySelector(`[data-activo="${CSS.escape(ej)}"]`).checked = estado[ej].activo;
+          refrescar(ej);
+        });
+        app.querySelector('[data-zona-f="todos"]').click();
+        cerrarHoja(); aviso(`Plantilla aplicada. Revísala y pulsa «Guardar plan»`);
+      }));
+    });
     document.getElementById("invitar").onclick = async (ev) => {
       ev.target.disabled = true;
       try { hojaInvitacion(nombre, await api(`/api/fisio/pacientes/${id}/invitacion`, { method: "POST" })); }
