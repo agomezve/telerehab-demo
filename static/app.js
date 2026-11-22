@@ -110,6 +110,7 @@ function cabecera(titulo, { atras = true, derecha = "" } = {}) {
 }
 function pintar(html, alPintar) {
   app.innerHTML = html;
+  app.querySelectorAll(".cabecera").forEach(ponerBotonActualizar);
   app.querySelectorAll("[data-atras]").forEach((b) => (b.onclick = volver));
   alPintar && alPintar();
 }
@@ -641,7 +642,7 @@ function elegirFuente(ej, nivel, { guiada = false } = {}) {
       const f = b.dataset.fuente;
       if (guiada) { S.guiada.fuente = f; return ir(() => pasoGuiado()); }
       if (f === "archivo") return input.click();
-      if (f === "ejemplo") return ir(() => serieDirecto(ej, nivel, { tipo: "video", url: ej.video_analisis || ej.video }));
+      if (f === "ejemplo") return ir(() => serieDirecto(ej, nivel, { tipo: "video", url: ej.video_analisis || ej.video, ejemplo: true }));
       ir(() => serieDirecto(ej, nivel, { tipo: "camara", modo: f }));
     }));
   });
@@ -660,7 +661,7 @@ function empezarSesionGuiada(pendientes) {
 }
 function fuenteGuiada(ej) {
   const f = S.guiada.fuente;
-  return f === "ejemplo" ? { tipo: "video", url: ej.video_analisis || ej.video } : { tipo: "camara", modo: f };
+  return f === "ejemplo" ? { tipo: "video", url: ej.video_analisis || ej.video, ejemplo: true } : { tipo: "camara", modo: f };
 }
 const barraSesion = () => S.guiada
   ? `<div class="progreso-sesion" aria-label="Serie ${S.guiada.i + 1} de ${S.guiada.cola.length}"><i style="width:${Math.round(100 * S.guiada.i / S.guiada.cola.length)}%"></i></div>` : "";
@@ -811,7 +812,7 @@ async function serieDirecto(ej, nivel, fuente) {
   if (!vivo) return;
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  ws = new WebSocket(`${proto}//${location.host}/ws/serie?token=${encodeURIComponent(S.token)}&ejercicio=${encodeURIComponent(ej.nombre)}&nivel=${nivel}`);
+  ws = new WebSocket(`${proto}//${location.host}/ws/serie?token=${encodeURIComponent(S.token)}&ejercicio=${encodeURIComponent(ej.nombre)}&nivel=${nivel}${fuente.ejemplo ? "&ejemplo=1" : ""}`);
   ws.binaryType = "arraybuffer";
 
   const enviar = () => {
@@ -1559,4 +1560,62 @@ if (invitacion) {
   inicio(pantallaLogin);
 }
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => { });
+// ─── Versión nueva disponible ─────────────────────────────────────────────────
+// sw.js lleva dentro una huella de la app. Cuando cambia, el navegador instala la versión nueva
+// en segundo plano y la deja esperando: avisamos y el usuario la activa con un toque.
+let swEsperando = null, actualizando = false;
+function hayVersionNueva(sw) {
+  swEsperando = sw;
+  document.querySelectorAll(".cabecera").forEach(ponerBotonActualizar);
+  mostrarAvisoVersion();
+}
+function botonActualizarHtml() {
+  return swEsperando ? `<button class="btn-icono btn-actualizar" data-actualizar aria-label="Actualizar la app" title="Hay una versión nueva">${ic("repetir")}<span class="punto"></span></button>` : "";
+}
+function ponerBotonActualizar(cab) {
+  if (!swEsperando || cab.querySelector("[data-actualizar]")) return;
+  const titulo = cab.querySelector(":scope > h1, :scope > .marca-mini");
+  titulo ? titulo.insertAdjacentHTML("afterend", botonActualizarHtml()) : cab.insertAdjacentHTML("beforeend", botonActualizarHtml());
+  cab.querySelector("[data-actualizar]").onclick = actualizarApp;
+}
+function mostrarAvisoVersion() {
+  if (!swEsperando) return;
+  // No interrumpir una serie en marcha: se avisa al terminar
+  if (limpiezaDirecto) { setTimeout(mostrarAvisoVersion, 4000); return; }
+  let el = document.getElementById("aviso-version");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "aviso-version"; el.className = "aviso-version"; el.setAttribute("role", "status");
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `<span class="icono">${ic("repetir")}</span>
+    <span class="txt"><b>Hay una versión nueva</b><small>Actualiza para tener las últimas mejoras.</small></span>
+    <button class="btn-mini" data-actualizar-ya>Actualizar</button>
+    <button class="btn-icono cerrar" aria-label="Ahora no">${ic("cerrar")}</button>`;
+  el.hidden = false;
+  el.querySelector("[data-actualizar-ya]").onclick = actualizarApp;
+  el.querySelector(".cerrar").onclick = () => { el.hidden = true; };
+}
+function actualizarApp() {
+  if (limpiezaDirecto && !confirm("Se va a parar la serie en marcha. ¿Actualizar ahora?")) return;
+  actualizando = true;
+  const aviso = document.getElementById("aviso-version");
+  if (aviso) aviso.querySelector(".txt").innerHTML = "<b>Actualizando…</b>";
+  if (swEsperando) swEsperando.postMessage("actualizar");
+  setTimeout(() => location.reload(), 1500);  // por si el navegador no avisa del cambio
+}
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (actualizando) location.reload(); });
+  navigator.serviceWorker.register("/sw.js").then((reg) => {
+    const vigilar = (sw) => sw && sw.addEventListener("statechange", () => {
+      if (sw.state === "installed" && navigator.serviceWorker.controller) hayVersionNueva(sw);
+    });
+    if (reg.waiting && navigator.serviceWorker.controller) hayVersionNueva(reg.waiting);
+    vigilar(reg.installing);
+    reg.addEventListener("updatefound", () => vigilar(reg.installing));
+    // Busca versiones nuevas al volver a la app y cada 15 minutos
+    const buscar = () => reg.update().catch(() => { });
+    document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && buscar());
+    setInterval(buscar, 15 * 60 * 1000);
+  }).catch(() => { });
+}

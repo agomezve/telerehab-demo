@@ -4,8 +4,10 @@
  *  - fetch("/api/...") responde con los datos capturados del servidor real (demo/datos.json),
  *    con pacientes FICTICIOS. Lo que se cambia (plan, consentimiento, series nuevas…) se guarda
  *    solo en este navegador.
- *  - WebSocket("/ws/serie") reproduce una serie ya analizada por el motor real (MediaPipe) con el
- *    vídeo de ejemplo: GitHub Pages no puede ejecutar el análisis.
+ *  - WebSocket("/ws/serie"): con la cámara o un vídeo propio, analiza de verdad dentro del navegador
+ *    (analisis.js: MediaPipe para JavaScript + los mismos módulos de Python con Pyodide) y guarda el
+ *    vídeo de la serie en este navegador. Con el vídeo de ejemplo reproduce una serie ya analizada
+ *    por el motor del servidor (carga al instante).
  * Las fechas se desplazan para que la demo parezca siempre «de hoy».
  */
 (() => {
@@ -285,12 +287,136 @@
     }
     close() { this.fin = true; clearInterval(this.reloj); this.video && (this.video.pause(), this.video.remove()); this.readyState = 3; }
   }
-  window.WebSocket = SerieGrabada;
+
+  // ─── Vídeos de las series grabadas en este navegador (IndexedDB) ────────────
+  const abrirVideos = () => new Promise((ok, mal) => {
+    const r = indexedDB.open("telerehab-demo", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("videos");
+    r.onsuccess = () => ok(r.result); r.onerror = () => mal(r.error);
+  });
+  let ultimoVideo = null;  // el de la última serie, para «Guardar vídeo en el móvil»
+  // Pide que el navegador no borre estos datos cuando le falte espacio (iOS borra lo no persistente)
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (_) { }
+  async function guardarVideo(clave, blob) {
+    const db = await abrirVideos();
+    await new Promise((ok, mal) => { const t = db.transaction("videos", "readwrite"); t.objectStore("videos").put(blob, clave); t.oncomplete = ok; t.onerror = () => mal(t.error); });
+  }
+  async function leerVideo(clave) {
+    const db = await abrirVideos();
+    return new Promise((ok) => { const r = db.transaction("videos").objectStore("videos").get(clave); r.onsuccess = () => ok(r.result || null); r.onerror = () => ok(null); });
+  }
+
+  // ─── WebSocket("/ws/serie") con análisis real en el navegador ───────────────
+  class SerieNavegador {
+    constructor(url) {
+      this.readyState = 0; this.binaryType = "blob";
+      this.ejercicio = url.searchParams.get("ejercicio"); this.nivel = url.searchParams.get("nivel");
+      this.token = url.searchParams.get("token") || "";
+      this.cola = []; this.fin = false; this.serie = null; this.trabajando = false;
+      // Se abre enseguida (como el servidor); los fotogramas esperan a que el análisis esté listo
+      setTimeout(() => { this.readyState = 1; this.onopen && this.onopen(); listo.then(() => this._preparar()); }, 0);
+    }
+    _emitir(data) { !this.cerrado && this.onmessage && this.onmessage({ data }); }
+    _error(mensaje) { this.fin = true; this._emitir(JSON.stringify({ estado: "error", mensaje })); this.readyState = 3; }
+    _mensaje(texto) { const m = document.getElementById("mensaje"); if (m && texto != null) m.textContent = texto; }
+    async _preparar() {
+      const p = this.p = E.pac[this.token.slice(5)];
+      if (!p) return this._error("Sesión no válida");
+      if (!vigente(p)) return this._error("Antes de grabar tienes que aceptar el consentimiento");
+      // Un vídeo propio espera en pausa mientras se prepara el análisis (con la cámara no hace falta)
+      const entrada = document.getElementById("entrada");
+      const pausado = entrada && !entrada.srcObject && !entrada.paused;
+      if (pausado) entrada.pause();
+      let motor;
+      try { motor = await window.AnalisisNavegador.preparar((t) => !this.fin && this._mensaje(t)); }
+      catch (e) { return this._error("No se ha podido preparar el análisis en este navegador. Revisa la conexión e inténtalo de nuevo."); }
+      if (this.fin) return;
+      this._mensaje("");
+      if (pausado) entrada.play().catch(() => { });
+      this.serie = window.AnalisisNavegador.nuevaSerie(motor, this.ejercicio, this.nivel, p.id, p.nombre);
+      this._bucle();
+    }
+    send(datos) {
+      if (this.fin) return;
+      if (datos === "stop") return this.serie ? this._terminar("detenido") : this._error("Serie cancelada antes de empezar.");
+      this.cola.push(datos);
+      this._bucle();
+    }
+    _grabador(lienzo) {
+      if (this.grabador !== undefined) return;
+      this.grabador = null; this.trozos = [];
+      try {
+        const tipo = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t));
+        const g = new MediaRecorder(lienzo.captureStream(15), tipo ? { mimeType: tipo, videoBitsPerSecond: 1500000 } : {});
+        g.ondataavailable = (e) => e.data && e.data.size && this.trozos.push(e.data);
+        g.start(1000);
+        this.grabador = g;
+      } catch (_) { this.grabador = null; }
+    }
+    async _bucle() {
+      if (this.trabajando || !this.serie) return;
+      this.trabajando = true;
+      try {
+        while (this.cola.length && !this.fin) {
+          const datos = this.cola.shift();
+          const imagen = await createImageBitmap(new Blob([datos], { type: "image/jpeg" }));
+          const c = this.lienzo || (this.lienzo = document.createElement("canvas"));
+          if (c.width !== imagen.width || c.height !== imagen.height) { c.width = imagen.width; c.height = imagen.height; }
+          c.getContext("2d").drawImage(imagen, 0, 0);
+          imagen.close && imagen.close();
+          const m = this.serie.procesar(c);
+          this._grabador(c);
+          // toDataURL es síncrono; toBlob se retrasa mucho si la pestaña pasa a segundo plano
+          const url = c.toDataURL("image/jpeg", 0.8), bin = atob(url.slice(url.indexOf(",") + 1));
+          const jpeg = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) jpeg[i] = bin.charCodeAt(i);
+          this._emitir(jpeg.buffer);
+          this._emitir(JSON.stringify(m));
+          if (m.estado === "completado" || m.estado === "cortafuegos") { this._terminar(m.estado); break; }
+        }
+      } catch (e) {
+        console.error(e);
+        if (!this.fin) this._error("Ha fallado el análisis en este navegador.");
+      } finally { this.trabajando = false; }
+    }
+    async _terminar(resultado) {
+      if (this.fin) return;
+      this.fin = true;
+      // Igual que el servidor: informe + serie guardada + vídeo
+      const fin = this.serie.finalizar();
+      const video = await new Promise((ok) => {
+        const g = this.grabador;
+        if (!g || g.state === "inactive") return ok(null);
+        g.onstop = () => ok(this.trozos.length ? new Blob(this.trozos, { type: g.mimeType || "video/webm" }) : null);
+        g.stop();
+      });
+      const fecha = ahoraTexto(), p = this.p, s = fin.sesion || {};
+      p.sesiones.unshift({ fecha, ejercicio: this.ejercicio, nivel: this.nivel, repeticiones: s.repeticiones || 0,
+        errores: s.errores || 0, profundidad_media: s.profundidad_media ?? null, observaciones: s.observaciones || "", dolor: null, esfuerzo: null });
+      const clave = `${p.id}|${fecha}`;
+      let rutaVideo = null;
+      if (video) {
+        ultimoVideo = { t: Date.now(), blob: video, nombre: `${this.ejercicio.toLowerCase().replace(/ /g, "_")}_${fecha.replace(/[: ]/g, "-")}.${video.type.includes("mp4") ? "mp4" : "webm"}` };
+        try { await guardarVideo(clave, video); rutaVideo = "demo-idb:" + clave; } catch (_) { }
+      }
+      E.series[clave] = { informe: fin.informe || null, video: rutaVideo };
+      persistir();
+      this._emitir(JSON.stringify({ estado: "guardado", resultado }));
+      this.readyState = 3;
+    }
+    close() { if (!this.fin && this.serie) this._terminar("detenido"); this.fin = true; this.readyState = 3; }
+  }
+
+  function SerieDemo(direccion) {
+    const url = new URL(direccion, location.href);
+    if (!url.pathname.startsWith("/ws/serie")) return new WSReal(direccion);
+    return url.searchParams.get("ejemplo") ? new SerieGrabada(direccion) : new SerieNavegador(url);
+  }
+  window.WebSocket = SerieDemo;
 
   // ─── Ajustes de interfaz para la demo ───────────────────────────────────────
   const estilo = document.createElement("style");
   estilo.textContent = `
-    body.demo [data-fuente="user"], body.demo [data-fuente="environment"], body.demo [data-fuente="archivo"],
     body.demo .hoja .lista > .alerta { display: none !important; }
     .demo-nota { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 12px; padding: 12px 14px; border-radius: 14px;
       background: var(--azul-suave); color: var(--texto); font-size: 14px; line-height: 1.45; }
@@ -332,12 +458,31 @@
     }
     const lista = document.querySelector(".hoja [data-fuente='ejemplo']")?.parentElement;
     if (lista && !lista.querySelector(".demo-nota")) {
-      lista.insertAdjacentHTML("afterbegin", `<div class="demo-nota">${icono("info")}<span>En esta demo web se reproduce una serie ya analizada por el motor de visión artificial. La corrección con la cámara en directo funciona en la app conectada al servidor de la clínica.</span></div>`);
+      lista.insertAdjacentHTML("afterbegin", `<div class="demo-nota">${icono("info")}<span>En esta demo el análisis se hace en tu propio dispositivo: la imagen de la cámara no sale de él. La primera vez tarda un poco en prepararse. El vídeo de ejemplo carga al instante.</span></div>`);
+    }
+    // Resultado de una serie grabada aquí: el paciente puede guardar el vídeo en el móvil (fotos/archivos)
+    const resumen = document.getElementById("r-resumen");
+    if (resumen && ultimoVideo && Date.now() - ultimoVideo.t < 20000 && !document.getElementById("demo-guardar-video")) {
+      const v = ultimoVideo;
+      resumen.insertAdjacentHTML("afterend", `<button class="btn secundario" id="demo-guardar-video" style="margin:12px 0 4px">${icono("descargar")} Guardar vídeo en el móvil</button>`);
+      document.getElementById("demo-guardar-video").onclick = async () => {
+        const fichero = new File([v.blob], v.nombre, { type: v.blob.type.split(";")[0] });
+        try {
+          if (navigator.canShare && navigator.canShare({ files: [fichero] })) return await navigator.share({ files: [fichero], title: "Vídeo de mi serie" });
+        } catch (e) { if (e && e.name === "AbortError") return; }
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(fichero); a.download = v.nombre; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      };
     }
     // El vídeo de cada serie (fisio) es un fichero estático, no pasa por /api/fisio/video
     document.querySelectorAll("video[src^='/api/fisio/video']").forEach((v) => {
       const ruta = new URL(v.src, location.href).searchParams.get("ruta");
-      if (ruta) v.src = ruta;
+      if (!ruta) return;
+      if (!ruta.startsWith("demo-idb:")) { v.src = ruta; return; }
+      // Serie grabada con la cámara en este navegador: el vídeo está en IndexedDB
+      v.removeAttribute("src");
+      leerVideo(ruta.slice(9)).then((blob) => { if (blob) v.src = URL.createObjectURL(blob); });
     });
   }
   new MutationObserver(retocar).observe(document.documentElement, { childList: true, subtree: true });
