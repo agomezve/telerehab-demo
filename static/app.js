@@ -441,7 +441,7 @@ async function pacienteInicio(tab) {
           <button class="item" data-ej="${esc(e.nombre)}">
             ${miniatura(e.nombre)}
             <span class="txt"><b>${esc(nombreVisible(e.nombre))}</b>
-              <small>${e.por_tiempo ? "30 segundos" : "10 repeticiones"} · ${ultima[e.nombre] ? "último: " + fechaCorta(ultima[e.nombre]) : "sin hacer aún"}</small></span>
+              <small>${pautaSerie(e)} · ${ultima[e.nombre] ? "último: " + fechaCorta(ultima[e.nombre]) : "sin hacer aún"}</small></span>
             <span class="flecha">${ic("flecha")}</span>
           </button>`;
     const itemPlan = (p) => {
@@ -456,7 +456,7 @@ async function pacienteInicio(tab) {
     const seriesHoy = plan.plan.reduce((a, p) => a + Math.min(p.hechas_hoy, p.series), 0);
     const seriesObjetivo = plan.plan.reduce((a, p) => a + p.series, 0);
     const pctHoy = seriesObjetivo ? Math.round((100 * seriesHoy) / seriesObjetivo) : 0;
-    // ~1 min por serie de 10 reps o 30 s, más el descanso
+    // ~1 min por serie de 10 reps o 20-60 s, más el descanso
     const minutos = Math.max(1, Math.round(pendientesLista.reduce((a, p) => a + (p.series - Math.min(p.hechas_hoy, p.series)) * 1.5, 0)));
 
     const heroe = plan.plan.length ? `
@@ -604,7 +604,7 @@ async function detalleEjercicio(nombre, mensajeError) {
         <span class="marca-agua">${ic("play-circulo", "mini")} Cómo se hace</span>
       </div>
       <div class="pauta">
-        <span>${ic(ej.por_tiempo ? "reloj" : "repeticiones", "mini")} ${ej.por_tiempo ? "30 segundos" : "10 repeticiones"}</span>
+        <span>${ic(ej.por_tiempo ? "reloj" : "repeticiones", "mini")} ${pautaSerie(ej, recetado && recetado.nivel)}</span>
         <span>${ic("camara", "mini")} Te corrige en directo</span>
         <span>${ic("alerta", "mini")} Para tras 3 errores</span>
       </div>
@@ -663,6 +663,14 @@ function fuenteGuiada(ej) {
   const f = S.guiada.fuente;
   return f === "ejemplo" ? { tipo: "video", url: ej.video_analisis || ej.video, ejemplo: true } : { tipo: "camara", modo: f };
 }
+// Lo que hay que hacer en una serie: 10 repeticiones, o los segundos del nivel en plancha y propiocepción
+const segundosNivel = (ej, nivel) => (ej.segundos && ej.segundos[nivel]) || null;
+function pautaSerie(ej, nivel) {
+  if (!ej.por_tiempo) return "10 repeticiones";
+  if (segundosNivel(ej, nivel)) return `${segundosNivel(ej, nivel)} segundos`;
+  const v = Object.values(ej.segundos || {});
+  return v.length ? `${Math.min(...v)}–${Math.max(...v)} segundos según el nivel` : "30 segundos";
+}
 const barraSesion = () => S.guiada
   ? `<div class="progreso-sesion" aria-label="Serie ${S.guiada.i + 1} de ${S.guiada.cola.length}"><i style="width:${Math.round(100 * S.guiada.i / S.guiada.cola.length)}%"></i></div>` : "";
 function salirGuiada() { S.guiada = null; inicio(() => pacienteInicio("hoy")); }
@@ -682,7 +690,7 @@ function pasoGuiado({ descanso = 0 } = {}) {
       <p class="g-sig">${descanso ? "A continuación" : "Primera serie"}</p>
       <div class="g-tarjeta">
         ${ej.portada ? `<img src="${ej.portada}" alt="">` : ""}
-        <div><h2>${esc(nombreVisible(ej.nombre))}</h2><p>Serie ${paso.serie} de ${paso.de} · ${esc(paso.nivel)} · ${ej.por_tiempo ? "30 segundos" : "10 repeticiones"}</p></div>
+        <div><h2>${esc(nombreVisible(ej.nombre))}</h2><p>Serie ${paso.serie} de ${paso.de} · ${esc(paso.nivel)} · ${pautaSerie(ej, paso.nivel)}</p></div>
       </div>
       <ul class="consejos">${ej.consejos.slice(0, 2).map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
       <div class="pie-fijo"><button class="btn" id="g-empezar">${ic("play", "peq")} ${descanso ? "Saltar descanso" : "Empezar"}</button>
@@ -736,14 +744,19 @@ async function serieDirecto(ej, nivel, fuente) {
       <button class="btn-icono" id="cerrar" aria-label="Detener y salir">${ic("cerrar")}</button>
       <h2>${esc(nombreVisible(ej.nombre))} · ${esc(nivel)}</h2>
       <button class="btn-icono" id="voz" aria-label="Voz" aria-pressed="${leer("voz") !== false}" title="Correcciones por voz">${ic("voz")}</button>
-      <span class="pildora" id="errores">0/3 errores</span>
+      <span class="fallos" id="errores" role="img" aria-label="0 de 3 errores permitidos" title="Errores (a los 3 se para la serie)"><i></i><i></i><i></i></span>
     </div>
     ${barraSesion()}
     <div class="lienzo">
       <video id="entrada" class="oculto" playsinline muted></video>
       <img id="salida" alt="Vista de la cámara con el análisis de tu postura">
       <div class="cuenta-grande" id="cuenta" hidden></div>
-      <div class="contador-grande" id="contador" hidden><b>0</b><span>${ej.por_tiempo ? "segundos" : "repeticiones"}</span></div>
+      <div class="marcador" id="contador" hidden aria-live="polite">
+        <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="pista" cx="50" cy="50" r="44"/><circle class="arco" id="arco" cx="50" cy="50" r="44" pathLength="100"/></svg>
+        <div class="cifra"><b id="hechas">0</b><span id="objetivo">/${ej.por_tiempo ? segundosNivel(ej, nivel) || 30 : 10}</span></div>
+        <small>${ej.por_tiempo ? "segundos" : "repeticiones"}</small>
+      </div>
+      ${ej.por_tiempo ? "" : `<div class="recorrido" id="recorrido" hidden aria-hidden="true"><span>Recorrido</span><div class="tubo"><i id="recorrido-nivel"></i></div></div>`}
       <div class="consejo" id="consejo" hidden></div>
       <div class="mensaje" id="mensaje">Preparando la cámara…</div>
     </div>
@@ -757,7 +770,9 @@ async function serieDirecto(ej, nivel, fuente) {
   const pildora = document.getElementById("errores");
   const cuentaEl = document.getElementById("cuenta"), contadorEl = document.getElementById("contador"), consejoEl = document.getElementById("consejo");
   const botonVoz = document.getElementById("voz");
-  let consejoPrevio = "", ultimaVoz = 0, inicioSerie = null, cuentaPrevia = 0;
+  let consejoPrevio = "", ultimaVoz = 0, inicioSerie = null, cuentaPrevia = 0, hechasPrevias = 0, erroresPrevios = 0;
+  const recorridoEl = document.getElementById("recorrido"), nivelEl = document.getElementById("recorrido-nivel");
+  const hechasEl = document.getElementById("hechas"), objetivoEl = document.getElementById("objetivo"), arcoEl = document.getElementById("arco");
   botonVoz.onclick = () => {
     const on = botonVoz.getAttribute("aria-pressed") !== "true";
     botonVoz.setAttribute("aria-pressed", on); guardar("voz", on);
@@ -842,10 +857,30 @@ async function serieDirecto(ej, nivel, fuente) {
       if (prep !== cuentaPrevia && prep <= 3 && botonVoz.getAttribute("aria-pressed") === "true") hablar(String(prep));
     }
     cuentaPrevia = prep;
-    if (d.contador != null && !prep) {
+    if (!prep && (d.hechas != null || d.contador != null)) {
       contadorEl.hidden = false;
-      contadorEl.querySelector("b").textContent = String(d.contador).replace(/s$/, "");
+      // Servidor antiguo (sin «hechas»): se enseña su contador tal cual
+      const hechas = d.hechas ?? (parseInt(d.contador, 10) || 0), objetivo = d.objetivo || (ej.por_tiempo ? segundosNivel(ej, nivel) || 30 : 10);
+      hechasEl.textContent = hechas;
+      objetivoEl.textContent = `/${objetivo}`;
+      // Anillo: series de repeticiones → repeticiones hechas; por tiempo → tiempo transcurrido
+      const pct = d.por_tiempo ? (d.progreso ?? 0) : Math.min(100, (100 * hechas) / objetivo);
+      arcoEl.style.strokeDashoffset = 100 - pct;
+      if (!d.por_tiempo && hechas > hechasPrevias) {
+        // Repetición nueva: salto del marcador, verde si ha salido bien y rojo si ha sumado un error
+        const mal = d.errores > erroresPrevios;
+        contadorEl.classList.remove("rep-ok", "rep-mal"); void contadorEl.offsetWidth;
+        contadorEl.classList.add(mal ? "rep-mal" : "rep-ok");
+        try { navigator.vibrate && navigator.vibrate(mal ? [60, 60, 60] : 40); } catch (_) { }
+      }
+      hechasPrevias = hechas; erroresPrevios = d.errores;
+      if (recorridoEl && d.progreso != null) {
+        recorridoEl.hidden = false;
+        nivelEl.style.height = `${d.progreso}%`;
+        recorridoEl.classList.toggle("llega", d.progreso >= 100);
+      }
     }
+    if (recorridoEl) recorridoEl.classList.toggle("apagado", !d.persona_detectada);
     const consejo = (d.consejo || "").trim();
     consejoEl.hidden = !consejo || !!prep;
     consejoEl.textContent = consejo;
@@ -877,8 +912,8 @@ async function serieDirecto(ej, nivel, fuente) {
       b.textContent = "Volver"; b.onclick = volver; document.getElementById("cerrar").onclick = volver;
       return;
     }
-    pildora.textContent = `${d.errores}/3 errores`;
-    pildora.classList.toggle("mal", d.errores > 0);
+    pildora.querySelectorAll("i").forEach((p, i) => p.classList.toggle("on", i < d.errores));
+    pildora.setAttribute("aria-label", `${d.errores} de 3 errores permitidos`);
     pintarMarcador(d);
     if (d.estado === "completado" || d.estado === "cortafuegos") {
       terminado = true; mensaje.textContent = "Guardando la serie…"; return;

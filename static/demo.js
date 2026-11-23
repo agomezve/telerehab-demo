@@ -244,9 +244,11 @@
       const t = this.video.currentTime;
       let fila = this.serie.linea[0];
       for (const f of this.serie.linea) { if (f[0] <= t) fila = f; else break; }
-      // [t, errores, persona, estado, contador, consejo, estado_esqueleto, preparación] (lo que mandó el motor)
+      // [t, errores, persona, estado, contador, consejo, estado_esqueleto, preparación,
+      //  hechas, objetivo, por_tiempo, progreso] (lo que mandó el motor)
       return { errores: fila[1], persona_detectada: !!fila[2], estado: fila[3], contador: fila[4] ?? null, consejo: fila[5] || "",
-        estado_esqueleto: fila[6] || "neutro", preparacion: fila[7] || 0 };
+        estado_esqueleto: fila[6] || "neutro", preparacion: fila[7] || 0,
+        hechas: fila[8], objetivo: fila[9], por_tiempo: !!fila[10], progreso: fila[11] };
     }
     _tic() {
       if (this.fin || !this.pendientes || this.video.readyState < 2 || !this.video.videoWidth) return;
