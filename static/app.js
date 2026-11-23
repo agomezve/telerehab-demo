@@ -801,7 +801,7 @@ async function serieDirecto(ej, nivel, fuente) {
   const pildora = document.getElementById("errores");
   const cuentaEl = document.getElementById("cuenta"), contadorEl = document.getElementById("contador"), consejoEl = document.getElementById("consejo");
   const botonVoz = document.getElementById("voz");
-  let consejoPrevio = "", ultimaVoz = 0, inicioSerie = null, cuentaPrevia = 0, hechasPrevias = 0, erroresPrevios = 0;
+  let consejoPrevio = "", encuadrePrevio = "", ultimaVoz = 0, inicioSerie = null, cuentaPrevia = 0, hechasPrevias = 0, erroresPrevios = 0;
   const recorridoEl = document.getElementById("recorrido"), nivelEl = document.getElementById("recorrido-nivel");
   const hechasEl = document.getElementById("hechas"), objetivoEl = document.getElementById("objetivo"), arcoEl = document.getElementById("arco");
   botonVoz.onclick = () => {
@@ -949,7 +949,12 @@ async function serieDirecto(ej, nivel, fuente) {
     if (d.estado === "completado" || d.estado === "cortafuegos") {
       terminado = true; mensaje.textContent = "Guardando la serie…"; return;
     }
-    if (!terminado) mensaje.textContent = d.persona_detectada || d.preparacion ? "" : "No te veo bien. Colócate como indican los consejos.";
+    if (!terminado) mensaje.textContent = d.encuadre || (d.persona_detectada || d.preparacion ? "" : "No te veo bien. Colócate como indican los consejos.");
+    // Sin las articulaciones del ejercicio en la imagen no se cuenta nada: se avisa también de viva voz
+    if (d.encuadre && d.encuadre !== encuadrePrevio && botonVoz.getAttribute("aria-pressed") === "true" && Date.now() - ultimaVoz > 1800) {
+      hablar(d.encuadre); ultimaVoz = Date.now();
+    }
+    encuadrePrevio = d.encuadre || "";
     enVuelo = Math.max(0, enVuelo - 1);
     queueMicrotask(enviar);
   };
