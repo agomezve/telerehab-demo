@@ -600,7 +600,7 @@ async function detalleEjercicio(nombre, mensajeError) {
         <p class="receta" style="margin-top:2px">${recetado.series} ${recetado.series === 1 ? "serie" : "series"} al día · ${recetado.dias_semana} ${recetado.dias_semana === 1 ? "día" : "días"} por semana.
         Hoy llevas ${Math.min(recetado.hechas_hoy, recetado.series)} de ${recetado.series}.</p></div></div>` : ""}
       <div class="marco-video">
-        <video class="video-explicativo" src="${ej.video}" ${ej.portada ? `poster="${ej.portada}"` : ""} controls playsinline muted loop autoplay preload="auto"></video>
+        ${videoConVoz(ej)}
         <span class="marca-agua">${ic("play-circulo", "mini")} Cómo se hace</span>
       </div>
       <div class="pauta">
@@ -615,6 +615,7 @@ async function detalleEjercicio(nombre, mensajeError) {
     `<button data-nivel="${id}" aria-pressed="${id === nivel}">${txt}</button>`).join("")}</div>
       <div class="pie-fijo"><button class="btn" id="empezar">${ic("play", "peq")} Empezar serie</button></div>
     </div></main>`, () => {
+    activarVoz(app, leer("voz-videos") !== false);
     app.querySelectorAll("[data-nivel]").forEach((b) => (b.onclick = () => {
       nivel = b.dataset.nivel; guardar("nivel:" + nombre, nivel);
       app.querySelectorAll("[data-nivel]").forEach((x) => x.setAttribute("aria-pressed", x === b));
@@ -665,6 +666,36 @@ function fuenteGuiada(ej) {
 }
 // Lo que hay que hacer en una serie: 10 repeticiones, o los segundos del nivel en plancha y propiocepción
 const segundosNivel = (ej, nivel) => (ej.segundos && ej.segundos[nivel]) || null;
+/* Vídeo explicativo con la voz que lo narra. Los móviles solo dejan arrancar solo un vídeo si va en silencio,
+   así que se intenta con voz (si el paciente no la quitó) y, si el navegador no deja, sale el botón «Activar voz». */
+function videoConVoz(ej) {
+  return `<video class="video-explicativo" src="${ej.video}${ej.video.includes("?") ? "&" : "?"}v=alvaro" ${ej.portada ? `poster="${ej.portada}"` : ""} controls playsinline muted loop autoplay preload="auto"></video>
+    <button type="button" class="btn-voz" data-voz></button>`;
+}
+function activarVoz(raiz, conVoz) {
+  raiz.querySelectorAll("[data-voz]").forEach((b) => {
+    const v = b.parentElement.querySelector("video");
+    const pintarBoton = () => {
+      b.setAttribute("aria-pressed", String(!v.muted));
+      b.innerHTML = v.muted ? `${ic("silencio", "mini")}<span>Activar voz</span>` : `${ic("voz", "mini")}<span>Voz</span>`;
+      b.classList.toggle("activa", !v.muted);
+    };
+    b.onclick = () => {
+      const activar = v.muted;
+      v.muted = !activar;
+      guardar("voz-videos", activar);
+      if (activar) { v.currentTime = 0; v.play().catch(() => { }); }
+      pintarBoton();
+    };
+    v.addEventListener("volumechange", pintarBoton);
+    pintarBoton();
+    if (conVoz) {
+      v.muted = false;
+      v.play().then(pintarBoton).catch(() => { v.muted = true; v.play().catch(() => { }); pintarBoton(); });
+    }
+  });
+}
+
 function pautaSerie(ej, nivel) {
   if (!ej.por_tiempo) return "10 repeticiones";
   if (segundosNivel(ej, nivel)) return `${segundosNivel(ej, nivel)} segundos`;
@@ -709,8 +740,8 @@ function pasoGuiado({ descanso = 0 } = {}) {
     document.getElementById("g-empezar").onclick = lanzar;
     document.getElementById("g-salir").onclick = () => { clearInterval(t); salirGuiada(); };
     document.getElementById("g-ver").onclick = () => { clearInterval(t); abrirHoja(`<h2>${esc(nombreVisible(ej.nombre))}</h2>
-      <video class="video-serie" src="${ej.video}" controls playsinline muted loop autoplay></video>
-      <button class="btn secundario" data-cerrar>Cerrar</button>`); };
+      <div class="marco-video en-hoja">${videoConVoz(ej)}</div>
+      <button class="btn secundario" data-cerrar>Cerrar</button>`, (hoja) => activarVoz(hoja, leer("voz-videos") !== false)); };
   });
 }
 

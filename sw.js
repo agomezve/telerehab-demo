@@ -2,7 +2,7 @@
 // (muestra la pantalla de inicio). Los datos y el análisis siempre van al servidor.
 // VERSION la rellena quien sirve este fichero (servidor_web.py o la demo) con una huella de la app:
 // si cambia cualquier fichero, cambia sw.js y la app avisa de que hay una versión nueva.
-const VERSION = "87ceead30832";
+const VERSION = "560f817badae";
 const CACHE = "telerehab-" + VERSION;
 const ESTATICOS = ["/", "/static/app.css", "/static/app.js", "/static/icono-192.png", "/static/icono.svg"];
 

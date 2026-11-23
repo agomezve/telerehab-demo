@@ -245,6 +245,14 @@ h1, h2, h3 { margin: 0; line-height: 1.2; }
 .video-explicativo { height: 56vh; max-width: 100%; display: block; object-fit: cover; background: #0B1015; aspect-ratio: 9 / 16; }
 .marco-video .marca-agua { position: absolute; left: 10px; top: 10px; display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 99px;
   font-size: 12px; font-weight: 700; color: #fff; background: rgba(0, 0, 0, .45); backdrop-filter: blur(6px); pointer-events: none; }
+.btn-voz { position: absolute; left: 50%; bottom: 58px; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; padding: 9px 16px;
+  border: 0; border-radius: 99px; font: inherit; font-size: 14px; font-weight: 750; white-space: nowrap; color: #fff; background: var(--acento);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .3); cursor: pointer; }
+.btn-voz.activa { left: auto; right: 10px; top: 10px; bottom: auto; transform: none; padding: 6px; background: rgba(0, 0, 0, .45); backdrop-filter: blur(6px); box-shadow: none; }
+.btn-voz.activa span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.btn-voz:empty { display: none; }
+.marco-video.en-hoja { margin-bottom: 14px; }
+.marco-video.en-hoja .video-explicativo { height: 52vh; }
 .pauta { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
 .pauta span { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 650; padding: 7px 11px; border-radius: 99px;
   background: var(--superficie); border: 1px solid var(--borde); color: var(--texto-2); }
