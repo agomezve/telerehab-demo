@@ -273,13 +273,93 @@ function hojaCuentaPaciente() {
       <button class="item" id="c-pass"><span class="emoji">${ic("llave")}</span><span class="txt"><b>Cambiar contraseña</b></span><span class="flecha">${ic("flecha")}</span></button>
       <button class="item" id="c-priv"><span class="emoji">${ic("escudo")}</span><span class="txt"><b>Privacidad y mis datos</b><small>Descargar, retirar consentimiento</small></span><span class="flecha">${ic("flecha")}</span></button>
     </div>
+    ${bloqueAvisos()}
     ${selectorTema()}
     <div class="fila-btns" style="margin-top:18px"><button class="btn secundario" id="c-salir">${ic("salir", "peq")} Cerrar sesión</button></div>`, (hoja) => {
     activarSelectorTema(hoja);
+    activarAvisos(hoja, "paciente");
     hoja.querySelector("#c-salir").onclick = () => { cerrarHoja(); cerrarSesion(); };
     hoja.querySelector("#c-pass").onclick = hojaPasswordPaciente;
     hoja.querySelector("#c-priv").onclick = hojaPrivacidadPaciente;
   });
+}
+
+// ─── Avisos en el móvil (Web Push) ───────────────────────────────────────────
+// Solo con servidor: en la demo (/api/push/clave falla) el bloque no aparece.
+const esIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const appInstalada = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+function bytesClave(b64) {
+  const s = (b64 + "=".repeat((4 - b64.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+}
+const HORAS_AVISO = Array.from({ length: 15 }, (_, i) => `${String(i + 8).padStart(2, "0")}:00`);
+
+function bloqueAvisos() {
+  return `<div id="avisos-push" hidden><h3 class="ajuste-tit">Avisos en el móvil</h3><div class="caja-push"></div></div>`;
+}
+
+async function activarAvisos(hoja, rol) {
+  const caja = hoja.querySelector("#avisos-push");
+  if (!caja) return;
+  let clave;
+  try { ({ clave } = await api("/api/push/clave")); } catch (_) { return; }
+  const cuerpo = caja.querySelector(".caja-push");
+  caja.hidden = false;
+  const soporta = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  if (!soporta || (esIOS() && !appInstalada())) {
+    cuerpo.innerHTML = `<p class="nota-push">${ic("alerta", "mini")} ${esIOS() && !appInstalada()
+      ? "Para recibir avisos en el iPhone, añade la app a la pantalla de inicio (Compartir → «Añadir a pantalla de inicio») y ábrela desde allí."
+      : "Este navegador no permite avisos. Prueba con la app instalada en el móvil."}</p>`;
+    return;
+  }
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  let estado = { activo: false, hora: "18:00", hora_fisio: "09:00" };
+  if (sub) { try { estado = await api("/api/push/estado", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) }); } catch (_) { } }
+  const activo = estado.activo && Notification.permission === "granted";
+  const titulo = rol === "paciente" ? "Recordatorio de ejercicios" : "Avisos de mis pacientes";
+  const explica = rol === "paciente"
+    ? "Un aviso al día, solo si te quedan ejercicios."
+    : `Resumen a las ${estado.hora_fisio} con quién necesita atención y aviso al momento si alguien marca dolor alto.`;
+  cuerpo.innerHTML = `<div class="fila-push">
+      <span class="txt"><b>${titulo}</b><small>${explica}</small></span>
+      <label class="interruptor"><input type="checkbox" id="push-on" ${activo ? "checked" : ""} aria-label="${titulo}"><span></span></label>
+    </div>
+    ${rol === "paciente" ? `<div class="fila-push hora" ${activo ? "" : "hidden"}><span class="txt">${ic("reloj", "mini")} Avisarme a las</span>
+      <select id="push-hora" aria-label="Hora del recordatorio">${HORAS_AVISO.map((h) => `<option ${h === estado.hora ? "selected" : ""}>${h}</option>`).join("")}</select></div>` : ""}
+    <button class="btn fantasma" type="button" id="push-probar" ${activo ? "" : "hidden"}>Enviar un aviso de prueba</button>`;
+  const interruptor = cuerpo.querySelector("#push-on"), selHora = cuerpo.querySelector("#push-hora");
+  const mostrar = (on) => cuerpo.querySelectorAll(".fila-push.hora, #push-probar").forEach((el) => (el.hidden = !on));
+  const suscribir = async () => {
+    sub = sub || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytesClave(clave) });
+    await api("/api/push/suscribir", { method: "POST", body: JSON.stringify({ suscripcion: sub.toJSON(), hora: selHora ? selHora.value : undefined }) });
+  };
+  interruptor.onchange = async () => {
+    interruptor.disabled = true;
+    try {
+      if (interruptor.checked) {
+        if (await Notification.requestPermission() !== "granted") throw new Error("Permite las notificaciones de TeleRehab en los ajustes del móvil");
+        await suscribir();
+        aviso("Avisos activados");
+      } else if (sub) {
+        await api("/api/push/quitar", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => { });
+        await sub.unsubscribe().catch(() => { });
+        sub = null;
+        aviso("Avisos desactivados");
+      }
+    } catch (e) { interruptor.checked = !interruptor.checked; aviso(e.message || "No se han podido activar los avisos"); }
+    interruptor.disabled = false;
+    mostrar(interruptor.checked);
+  };
+  if (selHora) selHora.onchange = async () => {
+    try { await suscribir(); aviso(`Te avisaré a las ${selHora.value}`); } catch (e) { aviso(e.message); }
+  };
+  cuerpo.querySelector("#push-probar").onclick = async (ev) => {
+    ev.currentTarget.disabled = true;
+    try { await api("/api/push/probar", { method: "POST", body: JSON.stringify({ endpoint: sub && sub.endpoint }) }); aviso("Aviso enviado"); }
+    catch (e) { aviso(e.message); }
+    ev.currentTarget.disabled = false;
+  };
 }
 
 function hojaPasswordPaciente() {
@@ -565,6 +645,49 @@ function graficaEvolucion(series, ej) {
       <span style="margin-left:auto">${esPorTiempo(ej) ? "segundos" : "repeticiones"} por día</span></div></div>`;
 }
 
+/* Recorrido de movimiento: el ángulo medio que guarda cada módulo (profundidad_media).
+   En unos ejercicios mejora al bajar más (ángulo menor) y en otros al estirar más (ángulo mayor). */
+const RECORRIDO = {
+  Sentadilla: "menor", Zancadas: "menor", Bulgaras: "menor", "Peso Muerto": "menor",
+  "Hip Thrust": "mayor", "Press Militar": "mayor", "Press Banca": "mayor",
+};
+function evolucionRecorrido(series, ej) {
+  const sentido = RECORRIDO[ej];
+  if (!sentido) return null;
+  const porDia = {};
+  series.filter((s) => s.profundidad_media > 0).forEach((s) => (porDia[s.fecha.slice(0, 10)] ||= []).push(s.profundidad_media));
+  const dias = Object.keys(porDia).sort().map((d) => [d, porDia[d].reduce((a, b) => a + b, 0) / porDia[d].length]);
+  if (dias.length < 2) return { sentido, dias, mejora: null };
+  const k = Math.min(3, Math.floor(dias.length / 2));
+  const media = (xs) => xs.reduce((a, [, v]) => a + v, 0) / xs.length;
+  const antes = media(dias.slice(0, k)), ahora = media(dias.slice(-k));
+  return { sentido, dias, antes, ahora, mejora: sentido === "menor" ? antes - ahora : ahora - antes };
+}
+function tarjetaRecorrido(series, ej) {
+  const r = evolucionRecorrido(series, ej);
+  if (!r || !r.dias.length) return "";
+  const que = r.sentido === "menor" ? "Ángulo en lo más bajo del movimiento (más bajo = más recorrido)"
+                                    : "Ángulo en la máxima extensión (más alto = más recorrido)";
+  if (r.mejora === null)
+    return `<div class="tarjeta tarjeta-rango"><h3>${ic("tendencia", "mini")} Recorrido de movimiento</h3>
+      <p class="receta">Hoy: ${Math.round(r.dias[0][1])}°. Entrena otro día y verás aquí cómo evoluciona.</p></div>`;
+  const g = Math.round(Math.abs(r.mejora));
+  const [clase, texto] = g < 3 ? ["", "Estable"] : r.mejora > 0 ? ["ok", `+${g}° de recorrido`] : ["mal", `${g}° menos de recorrido`];
+  const vs = r.dias.slice(-14).map(([, v]) => v), min = Math.min(...vs), max = Math.max(...vs), rango = Math.max(1, max - min);
+  const W = 120, H = 34;
+  const pts = vs.map((v, i) => {
+    const x = vs.length === 1 ? W / 2 : (i * W) / (vs.length - 1);
+    const t = (v - min) / rango;  // la línea sube cuando mejora
+    return `${x.toFixed(1)},${(r.sentido === "menor" ? 3 + t * (H - 6) : H - 3 - t * (H - 6)).toFixed(1)}`;
+  }).join(" ");
+  return `<div class="tarjeta tarjeta-rango"><div class="rec-cab"><h3>${ic("tendencia", "mini")} Recorrido de movimiento</h3>
+      <span class="etiqueta ${clase}">${texto}</span></div>
+    <div class="rec-cuerpo"><div class="rec-cifras"><span><small>Al empezar</small><b>${Math.round(r.antes)}°</b></span>${ic("flecha", "mini")}
+      <span><small>Ahora</small><b>${Math.round(r.ahora)}°</b></span></div>
+      <svg viewBox="0 0 ${W} ${H}" class="rec-linea" aria-hidden="true"><polyline points="${pts}"/></svg></div>
+    <p class="receta">${que}. Media de tus primeros y últimos días entrenados.</p></div>`;
+}
+
 function activarProgreso() {
   const chips = app.querySelectorAll("[data-chip]");
   if (!chips.length) return;
@@ -576,6 +699,7 @@ function activarProgreso() {
     series.forEach((s) => (porDia[s.fecha.slice(0, 10)] ||= []).unshift(s));
     const unidad = (n) => esPorTiempo(ej) ? "s" : (n === 1 ? " rep" : " reps");
     document.getElementById("zona-progreso").innerHTML = `
+      ${tarjetaRecorrido(series, ej)}
       ${graficaEvolucion(series, ej)}
       <h3 class="seccion-tit">Historial</h3>
       <div class="lista">${Object.keys(porDia).sort().reverse().slice(0, 30).map((d) => `
@@ -782,6 +906,7 @@ async function serieDirecto(ej, nivel, fuente) {
       <video id="entrada" class="oculto" playsinline muted></video>
       <img id="salida" alt="Vista de la cámara con el análisis de tu postura">
       <div class="cuenta-grande" id="cuenta" hidden></div>
+      <div class="colocacion" id="colocacion" hidden aria-live="polite"></div>
       <div class="marcador" id="contador" hidden aria-live="polite">
         <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="pista" cx="50" cy="50" r="44"/><circle class="arco" id="arco" cx="50" cy="50" r="44" pathLength="100"/></svg>
         <div class="cifra"><b id="hechas">0</b><span id="objetivo">/${ej.por_tiempo ? segundosNivel(ej, nivel) || 30 : 10}</span></div>
@@ -882,8 +1007,15 @@ async function serieDirecto(ej, nivel, fuente) {
   // Marcador grande encima del vídeo: cuenta atrás, repeticiones y la corrección del motor (texto y voz)
   function pintarMarcador(d) {
     const prep = d.preparacion || 0;
-    cuentaEl.hidden = !prep;
-    if (prep) {
+    // Asistente de colocación: hasta que se te ve entero (y bien orientado) no empieza la cuenta atrás
+    const colocando = !!prep && d.colocado === false;
+    const colocacionEl = document.getElementById("colocacion");
+    colocacionEl.hidden = !colocando;
+    if (colocando) colocacionEl.innerHTML = `<b>Colócate</b>${(d.colocacion || []).map((c) =>
+      `<span class="${c.ok ? "ok" : ""}">${ic(c.ok ? "check-circulo" : "alerta", "mini")}${esc(c.texto)}</span>`).join("")}
+      <small>La cuenta atrás empieza sola cuando estés bien colocado</small>`;
+    cuentaEl.hidden = !prep || colocando;
+    if (prep && !colocando) {
       cuentaEl.textContent = prep;
       if (prep !== cuentaPrevia && prep <= 3 && botonVoz.getAttribute("aria-pressed") === "true") hablar(String(prep));
     }
@@ -1280,6 +1412,7 @@ function hojaNuevoPaciente() {
 function hojaAjustesFisio() {
   abrirHoja(`<h2>Ajustes</h2>
     ${selectorTema()}
+    ${bloqueAvisos()}
     <h3 class="ajuste-tit">Contraseña</h3>
     <form id="f-pass" novalidate>
       <div class="campo"><label for="a-act">Contraseña actual</label><input id="a-act" type="password" autocomplete="current-password"></div>
@@ -1294,6 +1427,7 @@ function hojaAjustesFisio() {
       </div>
     </form>`, (hoja) => {
     activarSelectorTema(hoja);
+    activarAvisos(hoja, "fisio");
     hoja.querySelector("#salir").onclick = () => { cerrarHoja(); cerrarSesion(); };
     hoja.querySelector("#f-pass").onsubmit = async (e) => {
       e.preventDefault();

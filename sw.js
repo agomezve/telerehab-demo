@@ -2,7 +2,7 @@
 // (muestra la pantalla de inicio). Los datos y el análisis siempre van al servidor.
 // VERSION la rellena quien sirve este fichero (servidor_web.py o la demo) con una huella de la app:
 // si cambia cualquier fichero, cambia sw.js y la app avisa de que hay una versión nueva.
-const VERSION = "33ffd8865093";
+const VERSION = "61db054ab0e4";
 const CACHE = "telerehab-" + VERSION;
 const ESTATICOS = ["/", "/static/app.css", "/static/app.js", "/static/icono-192.png", "/static/icono.svg"];
 
@@ -31,4 +31,22 @@ self.addEventListener("fetch", (e) => {
     }
     return r;
   }).catch(() => caches.match(e.request)));
+});
+
+// Avisos en el móvil (recordatorios del paciente, resumen y alertas del fisio): ver avisos_push.py
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { cuerpo: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.titulo || "TeleRehab IA", {
+    body: d.cuerpo || "", icon: "/static/icono-192.png", badge: "/static/icono-192.png",
+    data: { url: d.url || "/" }, tag: d.titulo || "telerehab",
+  }));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || "/", self.location.origin).href;
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((ventanas) => {
+    const abierta = ventanas.find((v) => v.url.startsWith(self.location.origin));
+    return abierta ? abierta.focus() : self.clients.openWindow(url);
+  }));
 });
