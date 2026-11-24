@@ -25,20 +25,12 @@ const ZONA_EJ = {
   "Press Militar": "hombro", "Press Banca": "hombro", "Hombros Laterales": "hombro", Plancha: "tronco", Propiocepcion: "equilibrio",
 };
 // Plantillas de plan por patología: [ejercicio, nivel, series al día, días por semana]. Son un punto de partida.
-const PLANTILLAS = [
-  { nombre: "Prótesis de rodilla · semanas 1-4", desc: "Fuerza suave de cuádriceps y glúteo, y equilibrio",
-    plan: [["Sentadilla", "principiante", 2, 5], ["Propiocepcion", "principiante", 2, 5], ["Hip Thrust", "principiante", 2, 3]] },
-  { nombre: "Prótesis de rodilla · semanas 5-8", desc: "Más carga y trabajo unilateral",
-    plan: [["Sentadilla", "intermedio", 3, 4], ["Zancadas", "principiante", 2, 3], ["Propiocepcion", "intermedio", 2, 5], ["Hip Thrust", "intermedio", 3, 3]] },
-  { nombre: "Hombro · manguito rotador", desc: "Elevaciones controladas y estabilidad escapular",
-    plan: [["Hombros Laterales", "principiante", 3, 5], ["Press Militar", "principiante", 2, 3], ["Plancha", "principiante", 2, 3]] },
-  { nombre: "Lumbalgia · core y cadena posterior", desc: "Estabilidad del tronco y glúteo",
-    plan: [["Plancha", "principiante", 3, 5], ["Hip Thrust", "principiante", 3, 4], ["Peso Muerto", "principiante", 2, 3]] },
-  { nombre: "Ligamento cruzado · fase intermedia", desc: "Fuerza unilateral y control de rodilla",
-    plan: [["Bulgaras", "principiante", 3, 3], ["Zancadas", "intermedio", 3, 3], ["Propiocepcion", "intermedio", 3, 5], ["Sentadilla", "intermedio", 3, 3]] },
-  { nombre: "Esguince de tobillo", desc: "Propiocepción y carga progresiva",
-    plan: [["Propiocepcion", "principiante", 3, 6], ["Sentadilla", "principiante", 2, 3]] },
-];
+// Protocolos por lesión (web/protocolos.json): fases con ejercicios y la guía clínica en la que se basan
+let _protocolos = null;
+const cargarProtocolos = () => (_protocolos ||= fetch("/static/protocolos.json").then((r) => {
+  if (!r.ok) throw new Error("No se han podido cargar los protocolos");
+  return r.json();
+}).catch((e) => { _protocolos = null; throw e; }));
 
 // Icono de línea del sprite de index.html
 const ic = (nombre, clase = "") => `<svg class="ic ${clase}" aria-hidden="true"><use href="#i-${nombre}"/></svg>`;
@@ -85,6 +77,20 @@ function hablar(texto) {
     speechSynthesis.cancel(); speechSynthesis.speak(u);
   } catch (_) { }
 }
+
+// Ajustes del paciente: modo persona mayor (lo activa su fisio) y si comparte los vídeos con él
+function saludoHora() {
+  const h = new Date().getHours();
+  return h >= 6 && h < 14 ? "Buenos días" : h >= 14 && h < 21 ? "Buenas tardes" : "Buenas noches";
+}
+
+function aplicarAjustes(a) {
+  S.ajustes = a || {};
+  const mayor = !!S.ajustes.modo_mayor;
+  document.body.classList.toggle("modo-mayor", mayor);
+  guardar("modo-mayor", mayor || null);  // para pintar la app grande desde el primer momento
+}
+if (leer("modo-mayor")) document.body.classList.add("modo-mayor");
 
 // ─── Navegación (con soporte del botón "atrás" del móvil) ─────────────────────
 const pila = [];
@@ -172,13 +178,14 @@ function pantallaLogin() {
       <button class="btn" type="submit">Entrar</button>
     </form>
     <p class="sello">${ic("escudo", "mini")} Tus datos de salud solo los ve tu fisioterapeuta</p>
+    <p class="sello"><a class="enlace" href="/profesionales">¿Eres fisioterapeuta? Conoce TeleRehab para tu clínica</a></p>
   </main>`, () => {
     document.getElementById("f-login").onsubmit = async (e) => {
       e.preventDefault();
       const btn = e.target.querySelector("button"); btn.disabled = true;
       try {
         const r = await api("/api/login", { method: "POST", body: JSON.stringify({ usuario: document.getElementById("u").value, password: document.getElementById("p").value }) });
-        S.token = r.token; S.usuario = r; guardar("sesion", r);
+        S.token = r.token; S.usuario = r; guardar("sesion", r); S.recienEntrado = true; S.mensajeMostrado = false;
         if (r.rol === "paciente" && !r.consentimiento) inicio(pantallaConsentimiento);
         else entrar();
       } catch (err) { document.getElementById("err").textContent = err.message; btn.disabled = false; }
@@ -189,7 +196,8 @@ function pantallaLogin() {
 function cerrarSesion() {
   if (S.token) fetch("/api/logout", { method: "POST", headers: { Authorization: "Bearer " + S.token } }).catch(() => { });
   S.token = null; S.usuario = null; guardar("sesion", null);
-  S.pacientes = null; S.guiada = null; document.body.classList.remove("modo-fisio");
+  S.pacientes = null; S.guiada = null; S.mensajeMostrado = false; S.recienEntrado = false;
+  document.body.classList.remove("modo-fisio", "modo-mayor"); guardar("modo-mayor", null);
   inicio(pantallaLogin);
 }
 
@@ -233,7 +241,7 @@ function pantallaBienvenida(paso = 0) {
 const TEXTO_PRIVACIDAD = `
   <p>Para corregir tus ejercicios, TeleRehab IA trata estos datos:</p>
   <ul>
-    <li><b>Imagen de tu cámara</b> mientras haces una serie. Se analiza la postura y se guarda un vídeo de la serie.</li>
+    <li><b>Imagen de tu cámara</b> mientras haces una serie. La postura se analiza en tu propio móvil y, si lo permites en <i>Mi cuenta</i>, se guarda un vídeo de la serie.</li>
     <li><b>Resultados de cada serie</b>: repeticiones, errores, ángulos e informe.</li>
     <li><b>Tus datos de paciente</b>: nombre, edad y notas de tu fisioterapeuta.</li>
   </ul>
@@ -274,10 +282,25 @@ function hojaCuentaPaciente() {
       <button class="item" id="c-priv"><span class="emoji">${ic("escudo")}</span><span class="txt"><b>Privacidad y mis datos</b><small>Descargar, retirar consentimiento</small></span><span class="flecha">${ic("flecha")}</span></button>
     </div>
     ${bloqueAvisos()}
+    <div id="bloque-video" hidden><h3 class="ajuste-tit">Vídeos de mis series</h3>
+      <div class="caja-push"><div class="fila-push"><span class="txt"><b>Enviar el vídeo a mi fisioterapeuta</b>
+        <small>El análisis se hace en tu móvil. Si lo desactivas, tu fisio verá los resultados pero no el vídeo.</small></span>
+        <label class="interruptor"><input type="checkbox" id="c-video" aria-label="Enviar el vídeo de cada serie a mi fisioterapeuta"><span></span></label></div></div></div>
     ${selectorTema()}
     <div class="fila-btns" style="margin-top:18px"><button class="btn secundario" id="c-salir">${ic("salir", "peq")} Cerrar sesión</button></div>`, (hoja) => {
     activarSelectorTema(hoja);
     activarAvisos(hoja, "paciente");
+    api("/api/mis-ajustes").then((a) => {
+      aplicarAjustes(a);
+      const caja = hoja.querySelector("#bloque-video"), c = hoja.querySelector("#c-video");
+      if (!caja || !a.analisis_en_movil) return;
+      caja.hidden = false; c.checked = a.compartir_video;
+      c.onchange = async () => {
+        try { aplicarAjustes(await api("/api/mis-ajustes", { method: "POST", body: JSON.stringify({ compartir_video: c.checked }) }));
+          aviso(c.checked ? "Tu fisio verá el vídeo de cada serie" : "Ya no se enviarán vídeos de tus series"); }
+        catch (e) { c.checked = !c.checked; aviso(e.message); }
+      };
+    }).catch(() => { });
     hoja.querySelector("#c-salir").onclick = () => { cerrarHoja(); cerrarSesion(); };
     hoja.querySelector("#c-pass").onclick = hojaPasswordPaciente;
     hoja.querySelector("#c-priv").onclick = hojaPrivacidadPaciente;
@@ -505,9 +528,14 @@ async function pacienteInicio(tab) {
   try { [lista, historial, plan] = await Promise.all([cargarEjercicios(), api("/api/mi-historial"), api("/api/mi-plan")]); }
   catch (e) { return pintar(`<div class="vacio">${esc(e.message)}</div>`); }
   S.plan = plan.plan;
+  aplicarAjustes(plan.ajustes);
+  const mayor = !!(plan.ajustes && plan.ajustes.modo_mayor);
 
   const r = resumen(historial);
-  const cuenta = `<button class="btn-icono avatar" id="cuenta" aria-label="Mi cuenta" title="Mi cuenta">${esc((S.usuario.nombre || "?").slice(0, 1).toUpperCase())}</button>`;
+  const nota = plan.nota || null, sinLeer = notaSinLeer(nota);
+  const cuenta = `<span class="acciones-cab">
+    <button class="btn-icono buzon" id="buzon" aria-label="${sinLeer ? "Mensajes: 1 sin leer" : "Mensajes"}" title="Mensajes">${ic("mensaje")}${sinLeer ? `<span class="insignia" aria-hidden="true">1</span>` : ""}</button>
+    <button class="btn-icono avatar" id="cuenta" aria-label="Mi cuenta" title="Mi cuenta">${esc((S.usuario.nombre || "?").slice(0, 1).toUpperCase())}</button></span>`;
   const pestañas = tabs(tab, [["hoy", "actividad", "Hoy"], ["progreso", "tendencia", "Mi progreso"]]);
   const racha = calcularRacha(historial);
 
@@ -566,18 +594,16 @@ async function pacienteInicio(tab) {
     const bloqueListas = plan.plan.length ? `
         <h3 class="seccion-tit">Tu plan de hoy <small>${seriesHoy}/${seriesObjetivo} series</small></h3>
         <div class="lista">${plan.plan.map(itemPlan).join("")}</div>
-        <h3 class="seccion-tit">Otros ejercicios</h3>
-        <div class="lista">${lista.filter((e) => !enPlan.has(e.nombre)).map(itemEjercicio).join("")}</div>`
+        ${mayor ? "" : `<h3 class="seccion-tit">Otros ejercicios</h3>`}
+        ${mayor ? "" : `<div class="lista">${lista.filter((e) => !enPlan.has(e.nombre)).map(itemEjercicio).join("")}</div>`}`
       : `<h3 class="seccion-tit">Tus ejercicios</h3>
         <div class="lista">${lista.map(itemEjercicio).join("")}</div>`;
 
     pintar(`<main class="pantalla">${cabecera(null, { atras: false, derecha: cuenta })}
       <div class="contenido">
-        <div class="saludo"><p class="fecha">${hoyLargo()}</p><h2>Hola, ${esc(S.usuario.nombre)}</h2></div>
-        ${plan.nota ? `<div class="nota-fisio"><span class="ic-caja">${ic("enviar", "peq")}</span><div>
-          <small>Mensaje de tu fisioterapeuta · ${fechaCorta(plan.nota.fecha)}</small><p>${esc(plan.nota.texto)}</p></div></div>` : ""}
+        <div class="saludo"><p class="fecha">${hoyLargo()}</p><h2>${saludoHora()}, ${esc(S.usuario.nombre)}</h2></div>
         ${heroe}
-        ${semanaHtml(historial)}
+        ${mayor ? "" : semanaHtml(historial)}
         ${bloqueListas}
       </div>${pestañas}</main>`, () => {
       app.querySelectorAll("[data-ej]").forEach((b) => (b.onclick = () => ir(() => detalleEjercicio(b.dataset.ej))));
@@ -599,7 +625,52 @@ async function pacienteInicio(tab) {
       </div>${pestañas}</main>`, () => activarProgreso());
   }
   document.getElementById("cuenta").onclick = hojaCuentaPaciente;
+  document.getElementById("buzon").onclick = () => hojaMensajes(nota);
+  // Al entrar en la app, el mensaje nuevo del fisio aparece unos segundos y luego queda en el buzón
+  if (nota && (sinLeer || S.recienEntrado) && !S.mensajeMostrado) { S.mensajeMostrado = true; mensajeFlotante(nota, mayor); }
   app.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => ir(() => pacienteInicio(b.dataset.tab), { reemplazar: true })));
+}
+
+/* ── Mensajes del fisioterapeuta ── */
+const claveNota = () => "nota-leida:" + (S.usuario && S.usuario.nombre);
+function notaSinLeer(nota) { return !!(nota && leer(claveNota()) !== nota.fecha); }
+function marcarNotaLeida(nota) {
+  if (!nota) return;
+  guardar(claveNota(), nota.fecha);
+  const b = document.getElementById("buzon");
+  if (b) { b.querySelector(".insignia")?.remove(); b.setAttribute("aria-label", "Mensajes"); }
+}
+function mensajeFlotante(nota, mayor) {
+  const el = document.getElementById("mensaje-flotante");
+  el.innerHTML = `<button class="mf-cuerpo" aria-label="Abrir el mensaje de tu fisioterapeuta">
+      <span class="ic-caja">${ic("mensaje", "peq")}</span>
+      <span class="mf-txt"><small>Tu fisioterapeuta · ${fechaCorta(nota.fecha)}</small><b>${esc(nota.texto)}</b></span></button>
+    <button class="mf-cerrar" aria-label="Cerrar">${ic("cerrar", "mini")}</button>
+    <span class="mf-tiempo" aria-hidden="true"></span>`;
+  const duracion = mayor ? 12000 : 7000;
+  el.style.setProperty("--duracion", duracion + "ms");
+  el.hidden = false;
+  void el.offsetWidth;  // fuerza el estado inicial para que se vea la animación de entrada
+  el.classList.add("visible");
+  const cerrar = () => {
+    clearTimeout(mensajeFlotante.t);
+    el.classList.remove("visible");
+    setTimeout(() => { el.hidden = true; el.innerHTML = ""; }, 300);
+  };
+  el.querySelector(".mf-cerrar").onclick = cerrar;
+  el.querySelector(".mf-cuerpo").onclick = () => { cerrar(); hojaMensajes(nota); };
+  clearTimeout(mensajeFlotante.t);
+  mensajeFlotante.t = setTimeout(cerrar, duracion);
+  if (mayor && leer("voz") !== false) hablar("Tienes un mensaje de tu fisioterapeuta: " + nota.texto);
+}
+function hojaMensajes(nota) {
+  abrirHoja(`<h2>Mensajes</h2>
+    ${nota ? `<div class="burbuja-msg"><span class="ic-caja">${ic("mensaje", "peq")}</span>
+        <div><small>Tu fisioterapeuta · ${fechaCorta(nota.fecha)}</small><p>${esc(nota.texto)}</p></div></div>
+      <p class="ayuda">Si tienes dudas sobre el mensaje o sientes dolor, coméntaselo en tu próxima consulta.</p>`
+    : vacioHtml("mensaje", "Aún no tienes mensajes. Cuando tu fisioterapeuta te escriba, lo verás aquí y al abrir la app.")}
+    <button class="btn fantasma" data-cerrar>Cerrar</button>`);
+  marcarNotaLeida(nota);
 }
 
 /* Gráfica + lista por días de un ejercicio, con chips para cambiar de ejercicio. */
@@ -983,7 +1054,13 @@ async function serieDirecto(ej, nivel, fuente) {
   if (!vivo) return;
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  ws = new WebSocket(`${proto}//${location.host}/ws/serie?token=${encodeURIComponent(S.token)}&ejercicio=${encodeURIComponent(ej.nombre)}&nivel=${nivel}${fuente.ejemplo ? "&ejemplo=1" : ""}`);
+  const urlSerie = `${proto}//${location.host}/ws/serie?token=${encodeURIComponent(S.token)}&ejercicio=${encodeURIComponent(ej.nombre)}&nivel=${nivel}${fuente.ejemplo ? "&ejemplo=1" : ""}`;
+  // Con servidor, la serie se analiza en el propio móvil (serie_movil.js): la imagen no sale del teléfono.
+  // Si el móvil no puede, SerieMovil pasa sola al análisis en el servidor.
+  const ajustes = S.ajustes || {};
+  ws = window.SerieMovil && ajustes.analisis_en_movil !== false
+    ? new window.SerieMovil(urlSerie, S.token, { compartirVideo: ajustes.compartir_video !== false })
+    : new WebSocket(urlSerie);
   ws.binaryType = "arraybuffer";
 
   const enviar = () => {
@@ -1035,6 +1112,9 @@ async function serieDirecto(ej, nivel, fuente) {
         contadorEl.classList.remove("rep-ok", "rep-mal"); void contadorEl.offsetWidth;
         contadorEl.classList.add(mal ? "rep-mal" : "rep-ok");
         try { navigator.vibrate && navigator.vibrate(mal ? [60, 60, 60] : 40); } catch (_) { }
+        // Modo persona mayor: cuenta en voz alta (sin pisar una corrección que se acaba de decir)
+        if (document.body.classList.contains("modo-mayor") && botonVoz.getAttribute("aria-pressed") === "true" && Date.now() - ultimaVoz > 1200)
+          hablar(String(hechas));
       }
       hechasPrevias = hechas; erroresPrevios = d.errores;
       if (recorridoEl && d.progreso != null) {
@@ -1104,7 +1184,7 @@ function cuandoFue(fecha) {
 
 function resultadoSerie(ej, nivel, resultado, { duracion = null } = {}) {
   const textos = {
-    completado: ["check-circulo", "", "¡Serie completada!", "Muy bien hecho. Tu fisioterapeuta ya puede ver el informe y el vídeo de la serie."],
+    completado: ["check-circulo", "", "¡Serie completada!", `Muy bien hecho. Tu fisioterapeuta ya puede ver el informe${S.ajustes && S.ajustes.compartir_video === false ? "" : " y el vídeo"} de la serie.`],
     cortafuegos: ["alerta", "ambar", "Paramos para cuidarte", "Vuelve a ver el vídeo explicativo para mejorar la técnica en el ejercicio."],
     detenido: ["guardar", "azul", "Serie guardada", "Has terminado la serie antes de tiempo. La hemos guardado igualmente."],
   };
@@ -1240,6 +1320,9 @@ async function fisioInicio() {
   pintar(`<main class="pantalla">${cabecera("Mis pacientes", { atras: false, derecha: ajustes })}
     <div class="contenido sin-tabs tablero">
       <section class="col-resumen">
+      <div class="saludo saludo-fisio"><p class="fecha">${hoyLargo()}</p>
+        <h2>${saludoHora()}${S.usuario.nombre && S.usuario.nombre !== "Fisioterapeuta" ? `, ${esc(S.usuario.nombre.split(" ")[0])}` : ""}</h2>
+        <p>${atencion.length ? `${atencion.length} ${atencion.length === 1 ? "paciente necesita" : "pacientes necesitan"} tu atención hoy.` : "Tus pacientes van bien hoy."}</p></div>
       ${S.usuario.clinica ? `<p class="clinica">${ic("clinica", "mini")} ${esc(S.usuario.clinica)}</p>` : ""}
       ${atencion.length ? `<h3 class="seccion-tit" style="margin-top:4px">Requieren atención <small>${atencion.length}</small></h3>
       <div class="atencion">${atencion.slice(0, 6).map(tarjetaAtencion).join("")}</div>`
@@ -1412,6 +1495,7 @@ function hojaNuevoPaciente() {
 function hojaAjustesFisio() {
   abrirHoja(`<h2>Ajustes</h2>
     ${selectorTema()}
+    ${window.DEMO ? "" : `<h3 class="ajuste-tit">Mi clínica</h3><div id="bloque-clinica"><p class="ayuda">Cargando…</p></div>`}
     ${bloqueAvisos()}
     <h3 class="ajuste-tit">Contraseña</h3>
     <form id="f-pass" novalidate>
@@ -1427,6 +1511,7 @@ function hojaAjustesFisio() {
       </div>
     </form>`, (hoja) => {
     activarSelectorTema(hoja);
+    if (!window.DEMO) pintarClinica(hoja.querySelector("#bloque-clinica"));
     activarAvisos(hoja, "fisio");
     hoja.querySelector("#salir").onclick = () => { cerrarHoja(); cerrarSesion(); };
     hoja.querySelector("#f-pass").onsubmit = async (e) => {
@@ -1488,6 +1573,7 @@ async function fisioPaciente(id, tab) {
 async function fisioPlan(id, datos, pestañas) {
   const lista = await cargarEjercicios();
   const { nombre, plan, adherencia, alertas, consentimiento } = datos;
+  const ajustesPac = datos.ajustes || { modo_mayor: false };
   let nota = datos.nota;
   // Estado editable: un registro por ejercicio del catálogo
   const estado = {};
@@ -1527,11 +1613,15 @@ async function fisioPlan(id, datos, pestañas) {
     ${alertasReales.length ? `<h3 class="seccion-tit">Alertas</h3><div class="atencion">${alertasReales.map((a) =>
         `<div class="aviso-pac ${a.gravedad}"><span class="punto"></span><span class="txt">${esc(a.texto)}</span></div>`).join("")}</div>` : ""}
     <div id="zona-nota">${notaHtml()}</div>
-    <h3 class="seccion-tit">Ejercicios recetados <button class="btn-texto" id="plantillas">${ic("plan", "mini")} Usar plantilla</button></h3>
+    <h3 class="seccion-tit">Ejercicios recetados <button class="btn-texto" id="plantillas">${ic("plan", "mini")} Usar protocolo</button></h3>
     <div class="chips" role="group" aria-label="Zona del cuerpo">${ZONAS.map(([z, t], i) =>
       `<button class="chip" data-zona-f="${z}" aria-pressed="${i === 0}">${t}</button>`).join("")}</div>
     <div class="lista" id="filas-plan">${filas}</div>
     <div class="pie-fijo" style="bottom:calc(70px + var(--seguro-abajo))"><button class="btn" id="guardar-plan">${ic("guardar", "peq")} Guardar plan</button></div>
+    <div class="tarjeta acceso">
+      <div><b>${ic("usuario", "peq")} Modo persona mayor</b><p>Letra y botones más grandes, solo su plan en pantalla y la app le cuenta las repeticiones en voz alta.</p></div>
+      <label class="interruptor"><input type="checkbox" id="modo-mayor" ${ajustesPac.modo_mayor ? "checked" : ""} aria-label="Modo persona mayor para ${esc(nombre)}"><span></span></label>
+    </div>
     <div class="tarjeta acceso">
       <div><b>${ic("qr", "peq")} Acceso del paciente</b><p>Envíale un enlace o enséñale el QR para que entre desde su móvil y cree su contraseña.</p></div>
       <button class="btn secundario" id="invitar">Invitar</button>
@@ -1564,6 +1654,15 @@ async function fisioPlan(id, datos, pestañas) {
       } catch (e) { aviso(e.message); ev.target.disabled = false; }
     };
     document.getElementById("borrar").onclick = () => hojaBorrarPaciente(id, nombre);
+    const mm = document.getElementById("modo-mayor");
+    mm.onchange = async () => {
+      mm.disabled = true;
+      try {
+        await api(`/api/fisio/pacientes/${id}/ajustes`, { method: "PUT", body: JSON.stringify({ modo_mayor: mm.checked }) });
+        aviso(mm.checked ? `${nombre} verá la app en modo persona mayor` : "Modo persona mayor quitado");
+      } catch (e) { mm.checked = !mm.checked; aviso(e.message); }
+      mm.disabled = false;
+    };
     const activarNota = () => (document.getElementById("nota").onclick = () => hojaNota(id, nombre, nota && nota.texto, (n) => {
       nota = n; document.getElementById("zona-nota").innerHTML = notaHtml(); activarNota();
       aviso(n ? `${nombre} verá tu mensaje al abrir la app` : "Mensaje quitado");
@@ -1574,24 +1673,44 @@ async function fisioPlan(id, datos, pestañas) {
       app.querySelectorAll("[data-zona-f]").forEach((x) => x.setAttribute("aria-pressed", x === c));
       app.querySelectorAll("#filas-plan [data-fila]").forEach((f) => (f.hidden = z !== "todos" && f.dataset.zona !== z));
     }));
-    document.getElementById("plantillas").onclick = () => abrirHoja(`<h2>Plantillas de plan</h2>
-      <p class="ayuda" style="margin-top:-6px">Un punto de partida por patología. Después ajústalo a ${esc(nombre)} y pulsa <b>Guardar plan</b>.</p>
-      <div class="lista">${PLANTILLAS.map((t, i) => `<button class="item" data-plantilla="${i}"><span class="emoji">${ic("plan")}</span>
-        <span class="txt"><b>${esc(t.nombre)}</b><small>${esc(t.desc)} · ${t.plan.map((x) => nombreVisible(x[0])).join(", ")}</small></span>
+    const aplicarFase = (proto, fase) => {
+      Object.keys(estado).forEach((ej) => (estado[ej].activo = false));
+      fase.plan.forEach(([ej, nivel, series, dias]) => estado[ej] && Object.assign(estado[ej], { activo: true, nivel, series, dias_semana: dias }));
+      Object.keys(estado).forEach((ej) => {
+        app.querySelector(`[data-activo="${CSS.escape(ej)}"]`).checked = estado[ej].activo;
+        refrescar(ej);
+      });
+      app.querySelector('[data-zona-f="todos"]').click();
+      cerrarHoja(); aviso(`${proto.nombre} · ${fase.nombre}. Revísalo y pulsa «Guardar plan»`);
+    };
+    const hojaProtocolo = (proto) => abrirHoja(`<h2>${esc(proto.nombre)}</h2>
+      <p class="ayuda" style="margin-top:-6px">${esc(proto.resumen)}</p>
+      <ul class="claves-proto">${proto.claves.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
+      ${proto.fases.map((f, i) => `<div class="tarjeta fase-proto">
+        <div class="fase-cab"><b>${esc(f.nombre)}</b><button class="btn secundario" data-fase="${i}">Aplicar</button></div>
+        <small>${esc(f.cuando)}</small>
+        <div class="fase-ejs">${f.plan.map(([ej, nivel, series, dias]) => `<span>${miniatura(ej)}<b>${esc(nombreVisible(ej))}</b>
+          <small>${esc(nivel)} · ${series} ${series === 1 ? "serie" : "series"} · ${dias} días/sem</small></span>`).join("")}</div></div>`).join("")}
+      <div class="fuentes-proto"><b>${ic("libro", "mini")} En qué se basa</b>${proto.fuentes.map((f) =>
+        `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.cita)}</a>`).join("")}</div>
+      <p class="ayuda">${esc(_aviso_protocolos)}</p>
+      <button class="btn fantasma" data-cerrar style="margin-top:8px">Cerrar</button>`, (hoja) => {
+      hoja.querySelectorAll("[data-fase]").forEach((b) => (b.onclick = () => aplicarFase(proto, proto.fases[+b.dataset.fase])));
+    });
+    let _aviso_protocolos = "";
+    document.getElementById("plantillas").onclick = async () => {
+      let datosP;
+      try { datosP = await cargarProtocolos(); } catch (e) { return aviso(e.message); }
+      _aviso_protocolos = datosP.aviso;
+      abrirHoja(`<h2>Protocolos por lesión</h2>
+      <p class="ayuda" style="margin-top:-6px">Basados en guías de práctica clínica. Elige la fase de ${esc(nombre)}, ajústala y pulsa <b>Guardar plan</b>.</p>
+      <div class="lista">${datosP.protocolos.map((t, i) => `<button class="item" data-proto="${i}"><span class="emoji">${ic("plan")}</span>
+        <span class="txt"><b>${esc(t.nombre)}</b><small>${esc(t.resumen)} · ${t.fases.length} fases</small></span>
         <span class="flecha">${ic("flecha")}</span></button>`).join("")}</div>
       <button class="btn fantasma" data-cerrar style="margin-top:8px">Cancelar</button>`, (hoja) => {
-      hoja.querySelectorAll("[data-plantilla]").forEach((b) => (b.onclick = () => {
-        const t = PLANTILLAS[+b.dataset.plantilla];
-        Object.keys(estado).forEach((ej) => (estado[ej].activo = false));
-        t.plan.forEach(([ej, nivel, series, dias]) => estado[ej] && Object.assign(estado[ej], { activo: true, nivel, series, dias_semana: dias }));
-        Object.keys(estado).forEach((ej) => {
-          app.querySelector(`[data-activo="${CSS.escape(ej)}"]`).checked = estado[ej].activo;
-          refrescar(ej);
-        });
-        app.querySelector('[data-zona-f="todos"]').click();
-        cerrarHoja(); aviso(`Plantilla aplicada. Revísala y pulsa «Guardar plan»`);
-      }));
-    });
+        hoja.querySelectorAll("[data-proto]").forEach((b) => (b.onclick = () => hojaProtocolo(datosP.protocolos[+b.dataset.proto])));
+      });
+    };
     document.getElementById("invitar").onclick = async (ev) => {
       ev.target.disabled = true;
       try { hojaInvitacion(nombre, await api(`/api/fisio/pacientes/${id}/invitacion`, { method: "POST" })); }
@@ -1707,6 +1826,103 @@ async function pantallaInvitacion(codigo) {
   });
 }
 
+/* Equipo de la clínica: cualquiera lo ve; el responsable invita, da de baja y cambia el nombre */
+async function pintarClinica(caja) {
+  let c;
+  try { c = await api("/api/fisio/clinica"); }
+  catch (e) { caja.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+  const filas = c.equipo.map((f) => `<div class="fila-equipo">${avatar(f.nombre)}
+      <span class="txt"><b>${esc(f.nombre)}${f.id === c.yo ? " (tú)" : ""}</b><small>${esc(f.usuario)}${f.admin ? " · responsable" : ""}</small></span>
+      ${c.admin && !f.admin && f.id !== c.yo && f.id != null ? `<button class="btn-icono" data-baja="${f.id}" data-nombre="${esc(f.nombre)}" aria-label="Dar de baja a ${esc(f.nombre)}">${ic("papelera")}</button>` : ""}
+    </div>`).join("");
+  caja.innerHTML = `
+    ${c.admin ? `<form id="f-clinica" class="fila-nombre" novalidate>
+        <div class="campo"><label for="cl-nombre">Nombre de la clínica</label><input id="cl-nombre" maxlength="80" value="${esc(c.nombre || "")}"></div>
+        <button class="btn secundario" type="submit">${ic("guardar", "peq")} Guardar</button></form>`
+      : `<p class="ayuda" style="margin-top:0">${esc(c.nombre || "")}</p>`}
+    <div class="equipo">${filas}</div>
+    <p class="ayuda">${c.equipo.length} ${c.equipo.length === 1 ? "fisioterapeuta" : "fisioterapeutas"} · ${c.pacientes} ${c.pacientes === 1 ? "paciente" : "pacientes"}. Todos los fisios de la clínica ven a todos sus pacientes.</p>
+    ${c.admin ? `<button class="btn secundario" id="invitar-fisio">${ic("usuario-mas", "peq")} Invitar a un fisioterapeuta</button>` : ""}`;
+  const f = caja.querySelector("#f-clinica");
+  if (f) f.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const r = await api("/api/fisio/clinica", { method: "PUT", body: JSON.stringify({ nombre: caja.querySelector("#cl-nombre").value }) });
+      S.usuario.clinica = r.nombre; guardar("sesion", { ...S.usuario, token: S.token }); aviso("Nombre guardado");
+    } catch (err) { aviso(err.message); }
+  };
+  caja.querySelectorAll("[data-baja]").forEach((b) => (b.onclick = async () => {
+    if (!confirm(`¿Dar de baja a ${b.dataset.nombre}? Dejará de tener acceso a los pacientes de la clínica en el momento. Sus pacientes se quedan en la clínica.`)) return;
+    try { await api(`/api/fisio/clinica/fisios/${b.dataset.baja}`, { method: "DELETE" }); aviso("Dado de baja"); pintarClinica(caja); }
+    catch (err) { aviso(err.message); }
+  }));
+  const inv = caja.querySelector("#invitar-fisio");
+  if (inv) inv.onclick = async () => {
+    try { hojaInvitacionFisio(c.nombre, await api("/api/fisio/clinica/invitacion", { method: "POST" })); }
+    catch (err) { aviso(err.message); }
+  };
+}
+
+function hojaInvitacionFisio(clinica, inv) {
+  const enlace = `${location.origin}/#alta-fisio=${inv.codigo}`;
+  abrirHoja(`<h2>Invitar a un fisioterapeuta</h2>
+    <p class="privacidad-txt">Mándale este enlace a tu compañero. Al abrirlo creará su usuario y contraseña y entrará en ${esc(clinica || "la clínica")}, con acceso a todos sus pacientes.</p>
+    <input class="enlace-inv" id="inv-enlace" value="${esc(enlace)}" readonly aria-label="Enlace de invitación">
+    <p class="ayuda">Válido hasta el ${fechaCorta(inv.caduca)} y para una sola persona. Envíalo solo a alguien de tu equipo: quien lo abra verá datos de salud.</p>
+    <div class="fila-btns">
+      <button class="btn" id="inv-compartir">${navigator.share ? ic("compartir", "peq") + " Enviar enlace" : ic("copiar", "peq") + " Copiar enlace"}</button>
+      <button class="btn fantasma" data-cerrar>Cerrar</button>
+    </div>`, (hoja) => {
+    hoja.querySelector("#inv-enlace").onclick = (e) => e.target.select();
+    hoja.querySelector("#inv-compartir").onclick = async () => {
+      if (navigator.share) { try { await navigator.share({ title: "TeleRehab", text: `Te invito al equipo de ${clinica || "la clínica"} en TeleRehab:`, url: enlace }); } catch (_) { } return; }
+      try { await navigator.clipboard.writeText(enlace); aviso("Enlace copiado"); }
+      catch (_) { hoja.querySelector("#inv-enlace").select(); aviso("Selecciona el enlace y cópialo"); }
+    };
+  });
+}
+
+async function pantallaAltaFisio(codigo) {
+  pintar(`<div class="cargando">Comprobando invitación…</div>`);
+  let inv;
+  try { inv = await api(`/api/alta-fisio/${encodeURIComponent(codigo)}`); }
+  catch (e) {
+    return pintar(`<main class="pantalla login"><div class="marca"><img src="/static/icono-192.png" alt=""><h1>TeleRehab IA</h1>
+      <p>${esc(e.message)}</p></div><button class="btn" id="ir-login">Ir a iniciar sesión</button></main>`,
+      () => (document.getElementById("ir-login").onclick = () => inicio(pantallaLogin)));
+  }
+  pintar(`<main class="pantalla login">
+    <div class="marca">
+      <img src="/static/icono-192.png" alt="">
+      <h1>Únete a ${esc(inv.clinica || "tu clínica")}</h1>
+      <p>Crea tu acceso de fisioterapeuta para ver a los pacientes de la clínica y pautarles ejercicios.</p>
+    </div>
+    <form id="f-alta" novalidate>
+      <div class="campo"><label for="af-n">Tu nombre</label><input id="af-n" autocomplete="name" maxlength="80" placeholder="Nombre y apellido"></div>
+      <div class="campo"><label for="af-u">Usuario</label><input id="af-u" name="username" autocomplete="username" autocapitalize="none" maxlength="40" placeholder="p. ej. ana.garcia"></div>
+      <div class="campo"><label for="af-p1">Contraseña</label><input id="af-p1" type="password" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></div>
+      <div class="campo"><label for="af-p2">Repítela</label><input id="af-p2" type="password" autocomplete="new-password"></div>
+      <p class="error" id="af-err"></p>
+      <button class="btn" type="submit">Crear mi acceso</button>
+      <p class="ayuda">Tratarás datos de salud de los pacientes de la clínica. Accede solo desde dispositivos con bloqueo de pantalla.</p>
+    </form>
+  </main>`, () => {
+    document.getElementById("f-alta").onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector("button"), v = (id) => document.getElementById(id).value;
+      btn.disabled = true;
+      try {
+        const r = await api(`/api/alta-fisio/${encodeURIComponent(codigo)}`, {
+          method: "POST", body: JSON.stringify({ nombre: v("af-n"), usuario: v("af-u"), password: v("af-p1"), password2: v("af-p2") }),
+        });
+        S.token = r.token; S.usuario = r; guardar("sesion", r);
+        aviso("Acceso creado. Bienvenido al equipo.");
+        entrar();
+      } catch (err) { document.getElementById("af-err").textContent = err.message; btn.disabled = false; }
+    };
+  });
+}
+
 // ─── Resultados del piloto ────────────────────────────────────────────────────
 async function fisioMetricas() {
   pintar(`<div class="cargando">Calculando resultados…</div>`);
@@ -1752,9 +1968,10 @@ async function fisioMetricas() {
 // ─── Arranque ─────────────────────────────────────────────────────────────────
 const sesion = leer("sesion");
 const invitacion = (location.hash.match(/^#invitacion=([\w-]+)/) || [])[1];
-if (invitacion) {
+const altaFisio = (location.hash.match(/^#alta-fisio=([\w-]+)/) || [])[1];
+if (invitacion || altaFisio) {
   history.replaceState(null, "", location.pathname);  // el código no se queda en la barra ni en el historial
-  inicio(() => pantallaInvitacion(invitacion));
+  inicio(() => (invitacion ? pantallaInvitacion(invitacion) : pantallaAltaFisio(altaFisio)));
 } else if (sesion && sesion.token) {
   S.token = sesion.token; S.usuario = sesion;
   // Comprueba que la sesión sigue siendo válida (el servidor puede haberse reiniciado)

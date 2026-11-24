@@ -1,10 +1,12 @@
-/* Análisis con la cámara dentro del navegador (demo de GitHub Pages, sin servidor).
+/* Análisis con la cámara dentro del móvil del paciente (app real y demo de GitHub Pages).
  *
- * Es el mismo análisis que hace el servidor en /ws/serie, pero ejecutado en el móvil:
+ * Es el mismo análisis que hace el servidor en /ws/serie, pero ejecutado en el móvil, así que la
+ * imagen de la cámara no sale del teléfono (serie_movil.js solo envía el resultado y, si el paciente
+ * quiere, el vídeo):
  *  - MediaPipe para JavaScript (PoseLandmarker, modelo «full», el mismo que model_complexity=1 en
  *    Python) calcula los 33 puntos del cuerpo de cada fotograma.
  *  - Pyodide (Python en WebAssembly) ejecuta SIN CAMBIOS motor.py y modulos/*.py con esos puntos,
- *    gracias a motor_navegador.py, que sustituye mediapipe, cv2 y database.
+ *    gracias a motor_navegador.py (el código llega en /static/py.json, ver codigo_navegador.py), que sustituye mediapipe, cv2 y database.
  *  - Lo que los módulos dibujan (esqueleto, marcador, barra de progreso…) se pinta en un lienzo.
  * La primera vez descarga ~30 MB (Python, NumPy y el modelo); después quedan en la caché del navegador.
  */
@@ -30,7 +32,7 @@
         const py = await window.loadPyodide({ indexURL: PYODIDE });
         await py.loadPackage("numpy");
         // Código del TFG tal cual (motor.py, ejercicios.py, config.py, modulos/) + los sustitutos
-        const ficheros = await fetch("/demo/py.json").then((r) => r.json());
+        const ficheros = await fetch("/static/py.json").then((r) => r.json());
         const mkdir = (c) => { try { py.FS.mkdir(c); } catch (_) { } };
         mkdir("/app"); mkdir("/datos");
         for (const [ruta, codigo] of Object.entries(ficheros)) {

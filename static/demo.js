@@ -66,6 +66,9 @@
       return { ...item, hechas_hoy: hoyN, hechas_semana: semana, objetivo_semana: item.series * item.dias_semana, completado_hoy: hoyN >= item.series };
     });
   }
+  // En la demo el análisis va con su propia serie (demo.js) y no hay vídeos que compartir
+  const ajustesDe = (p) => ({ modo_mayor: !!p.modo_mayor, compartir_video: true, analisis_en_movil: false });
+
   function resumen(p) {
     const detalle = planDeHoy(p);
     const objetivo = detalle.reduce((a, d) => a + d.objetivo_semana, 0);
@@ -130,7 +133,8 @@
     if (usuario.rol === "paciente") {
       const p = usuario.p;
       if (ruta === "/api/mi-historial") return responder(p.sesiones);
-      if (ruta === "/api/mi-plan") { const r = resumen(p); return responder({ plan: planDeHoy(p), adherencia: r.adherencia, dias_sin_entrenar: r.dias_sin_entrenar, ultima: r.ultima, alertas: r.alertas, nota: p.nota || null }); }
+      if (ruta === "/api/mi-plan") { const r = resumen(p); return responder({ plan: planDeHoy(p), adherencia: r.adherencia, dias_sin_entrenar: r.dias_sin_entrenar, ultima: r.ultima, alertas: r.alertas, nota: p.nota || null, ajustes: ajustesDe(p) }); }
+      if (ruta === "/api/mis-ajustes") return responder(ajustesDe(p));
       if (ruta === "/api/valoracion" && metodo === "POST") {
         const dolor = +cuerpo.dolor, esfuerzo = +cuerpo.esfuerzo;
         if (!(dolor >= 0 && dolor <= 10 && esfuerzo >= 1 && esfuerzo <= 3)) return fallo(400, "Dolor entre 0 y 10, esfuerzo entre 1 y 3");
@@ -176,7 +180,7 @@
       if (!p) return fallo(404, "Paciente no encontrado");
       if (m[2] === "/historial") {
         const r = resumen(p);
-        return responder({ nombre: p.nombre, sesiones: p.sesiones, plan: planDeHoy(p), ...r, nota: p.nota || null,
+        return responder({ nombre: p.nombre, sesiones: p.sesiones, plan: planDeHoy(p), ...r, nota: p.nota || null, ajustes: ajustesDe(p),
           consentimiento: p.consentimiento ? { version: p.consentimiento.version, fecha: p.consentimiento.fecha, vigente: vigente(p) } : null });
       }
       if (m[2] === "/plan" && metodo === "PUT") {
@@ -184,6 +188,7 @@
         if (items.some((i) => !(i.series >= 1 && i.series <= 10 && i.dias_semana >= 1 && i.dias_semana <= 7))) return fallo(400, "Series entre 1 y 10, días por semana entre 1 y 7");
         p.plan = items; persistir(); return responder({ ok: true, plan: items });
       }
+      if (m[2] === "/ajustes" && metodo === "PUT") { p.modo_mayor = !!cuerpo.modo_mayor; persistir(); return responder(ajustesDe(p)); }
       if (m[2] === "/nota" && metodo === "PUT") {
         const texto = String(cuerpo.texto || "").trim();
         if (texto.length > 280) return fallo(400, "La nota no puede pasar de 280 caracteres");

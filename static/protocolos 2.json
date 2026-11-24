@@ -1,0 +1,155 @@
+{
+  "aviso": "Plantillas orientativas basadas en guías de práctica clínica. No sustituyen la valoración del fisioterapeuta: la indicación, la fase y la dosis las decide él para cada paciente. El volumen (series y días) es un punto de partida prudente; las guías no fijan un número exacto para estos ejercicios.",
+  "revisado": "2026-11-24",
+  "protocolos": [
+    {
+      "id": "artrosis-rodilla-cadera",
+      "nombre": "Artrosis de rodilla o cadera",
+      "zona": "rodilla",
+      "resumen": "Fortalecimiento local y equilibrio, adaptado a la persona.",
+      "fuentes": [
+        {"cita": "NICE NG226. Osteoarthritis in over 16s: diagnosis and management (2022), recs. 1.3.1–1.3.2", "url": "https://www.nice.org.uk/guidance/ng226/chapter/Recommendations"}
+      ],
+      "claves": [
+        "El ejercicio terapéutico es tratamiento de primera línea: ofrecer a todos fortalecimiento muscular local y ejercicio aeróbico general.",
+        "Avisar de que al empezar el dolor articular puede aumentar algo, y de que el ejercicio regular no daña la articulación.",
+        "Valorar sesiones supervisadas al principio: la app sirve para el ejercicio en casa entre ellas."
+      ],
+      "fases": [
+        {"nombre": "Inicio", "cuando": "Primeras semanas o paciente poco activo.",
+         "plan": [["Sentadilla", "principiante", 2, 3], ["Hip Thrust", "principiante", 2, 3], ["Propiocepcion", "principiante", 2, 3]]},
+        {"nombre": "Progresión", "cuando": "Tolera la fase de inicio sin aumento de dolor que dure más de un día.",
+         "plan": [["Sentadilla", "intermedio", 3, 3], ["Hip Thrust", "intermedio", 3, 3], ["Zancadas", "principiante", 2, 3], ["Propiocepcion", "intermedio", 2, 3]]}
+      ]
+    },
+    {
+      "id": "protesis-rodilla",
+      "nombre": "Prótesis total de rodilla",
+      "zona": "rodilla",
+      "resumen": "Fuerza progresiva desde la fase postaguda temprana.",
+      "fuentes": [
+        {"cita": "Jette DU et al. Physical Therapist Management of Total Knee Arthroplasty. Phys Ther. 2020;100(9):1603-1631 (guía de la APTA)", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7462050/"}
+      ],
+      "claves": [
+        "La guía recomienda diseñar y progresar un entrenamiento de fuerza de alta intensidad en el periodo postagudo temprano.",
+        "Empezar cuando el cirujano y el fisioterapeuta lo indiquen y la herida y la inflamación lo permitan.",
+        "Subir la carga según tolerancia: rango de movimiento, dolor y control del gesto."
+      ],
+      "fases": [
+        {"nombre": "Postaguda temprana", "cuando": "Tras el alta, con indicación del equipo.",
+         "plan": [["Hip Thrust", "principiante", 2, 3], ["Sentadilla", "principiante", 2, 3], ["Propiocepcion", "principiante", 2, 5]]},
+        {"nombre": "Fortalecimiento", "cuando": "Buen control de la sentadilla parcial y dolor estable.",
+         "plan": [["Sentadilla", "intermedio", 3, 3], ["Hip Thrust", "intermedio", 3, 3], ["Zancadas", "principiante", 2, 3], ["Propiocepcion", "intermedio", 2, 4]]},
+        {"nombre": "Funcional", "cuando": "Tolera la fase anterior; objetivos de escaleras, marcha y actividad diaria.",
+         "plan": [["Sentadilla", "avanzado", 3, 3], ["Zancadas", "intermedio", 3, 3], ["Bulgaras", "principiante", 2, 2], ["Propiocepcion", "avanzado", 2, 3]]}
+      ]
+    },
+    {
+      "id": "lca",
+      "nombre": "Reconstrucción del ligamento cruzado anterior",
+      "zona": "rodilla",
+      "resumen": "Fases por criterios, no por fechas. Rehabilitación de 9 a 12 meses.",
+      "fuentes": [
+        {"cita": "van Melick N et al. Evidence-based clinical practice update: practice guidelines for ACL rehabilitation. Br J Sports Med. 2016;50(24):1506-1515", "url": "https://bjsm.bmj.com/content/50/24/1506"}
+      ],
+      "claves": [
+        "Prehabilitación y tres fases postoperatorias basadas en criterios: déficits, entrenamiento específico y vuelta al deporte.",
+        "Pasar de fase con pruebas de fuerza y salto, calidad del movimiento y factores psicológicos, no solo por el tiempo.",
+        "La rehabilitación postoperatoria debería durar de 9 a 12 meses. La app cubre el trabajo de fuerza y control en casa, no las pruebas de alta."
+      ],
+      "fases": [
+        {"nombre": "Fase 1 · Déficits", "cuando": "Tras la cirugía, con indicación del equipo: rango, derrame y activación del cuádriceps.",
+         "plan": [["Hip Thrust", "principiante", 2, 3], ["Sentadilla", "principiante", 2, 3], ["Propiocepcion", "principiante", 2, 5], ["Plancha", "principiante", 2, 3]]},
+        {"nombre": "Fase 2 · Fuerza y control", "cuando": "Cumple los criterios de la fase 1 que fije el fisioterapeuta.",
+         "plan": [["Sentadilla", "intermedio", 3, 3], ["Bulgaras", "principiante", 3, 3], ["Zancadas", "principiante", 2, 3], ["Peso Muerto", "principiante", 2, 2], ["Propiocepcion", "intermedio", 2, 4]]},
+        {"nombre": "Fase 3 · Previa al deporte", "cuando": "Simetría de fuerza y calidad de movimiento adecuadas según las pruebas.",
+         "plan": [["Sentadilla", "avanzado", 3, 3], ["Bulgaras", "intermedio", 3, 3], ["Zancadas", "intermedio", 3, 2], ["Peso Muerto", "intermedio", 3, 2], ["Propiocepcion", "avanzado", 2, 3]]}
+      ]
+    },
+    {
+      "id": "femoropatelar",
+      "nombre": "Dolor femoropatelar",
+      "zona": "rodilla",
+      "resumen": "Ejercicio combinado de cadera y rodilla.",
+      "fuentes": [
+        {"cita": "Willy RW et al. Patellofemoral Pain: Clinical Practice Guidelines. J Orthop Sports Phys Ther. 2019;49(9):CPG1-CPG95", "url": "https://doi.org/10.2519/jospt.2019.0302"}
+      ],
+      "claves": [
+        "Recomienda ejercicio combinado de cadera y rodilla para reducir el dolor y mejorar la función a corto, medio y largo plazo.",
+        "Los tratamientos pasivos aislados (electroterapia, ultrasonidos, punción seca) no están respaldados.",
+        "Dosificar la flexión de rodilla con carga según el dolor: empezar con sentadilla parcial."
+      ],
+      "fases": [
+        {"nombre": "Inicio", "cuando": "Dolor que permite cargar con flexión parcial.",
+         "plan": [["Hip Thrust", "principiante", 3, 3], ["Sentadilla", "principiante", 2, 3], ["Plancha", "principiante", 2, 3]]},
+        {"nombre": "Progresión", "cuando": "El dolor durante y después del ejercicio se mantiene bajo y estable.",
+         "plan": [["Hip Thrust", "intermedio", 3, 3], ["Sentadilla", "intermedio", 3, 3], ["Bulgaras", "principiante", 2, 3], ["Zancadas", "principiante", 2, 2]]}
+      ]
+    },
+    {
+      "id": "tobillo",
+      "nombre": "Esguince lateral de tobillo e inestabilidad",
+      "zona": "tobillo",
+      "resumen": "Equilibrio y propiocepción para evitar recaídas.",
+      "fuentes": [
+        {"cita": "Martin RL et al. Ankle Stability and Movement Coordination Impairments: Lateral Ankle Ligament Sprains Revision 2021. J Orthop Sports Phys Ther. 2021;51(4):CPG1-CPG80", "url": "https://doi.org/10.2519/jospt.2021.0302"}
+      ],
+      "claves": [
+        "Tras un primer esguince, pautar ejercicio de equilibrio y propiocepción, junto con ortesis, para reducir el riesgo de nuevas lesiones.",
+        "En la inestabilidad crónica, el entrenamiento propioceptivo combinado con ejercicio mejora el dolor y la función.",
+        "Progresar en la dificultad del equilibrio: apoyo, ojos, superficie y tareas añadidas."
+      ],
+      "fases": [
+        {"nombre": "Inicio", "cuando": "Ya apoya y camina con dolor tolerable.",
+         "plan": [["Propiocepcion", "principiante", 3, 5], ["Sentadilla", "principiante", 2, 3]]},
+        {"nombre": "Progresión", "cuando": "Mantiene el equilibrio a una pierna con buen control.",
+         "plan": [["Propiocepcion", "intermedio", 3, 5], ["Sentadilla", "intermedio", 2, 3], ["Zancadas", "principiante", 2, 3]]},
+        {"nombre": "Prevención de recaídas", "cuando": "Vuelta a la actividad habitual o al deporte.",
+         "plan": [["Propiocepcion", "avanzado", 2, 3], ["Zancadas", "intermedio", 2, 2], ["Bulgaras", "principiante", 2, 2]]}
+      ]
+    },
+    {
+      "id": "lumbalgia",
+      "nombre": "Lumbalgia inespecífica",
+      "zona": "espalda",
+      "resumen": "Ejercicio adaptado a la persona, con tronco y cadena posterior.",
+      "fuentes": [
+        {"cita": "NICE NG59. Low back pain and sciatica in over 16s: assessment and management (2016)", "url": "https://www.nice.org.uk/guidance/ng59/chapter/Recommendations"}
+      ],
+      "claves": [
+        "Considerar un programa de ejercicio (biomecánico, aeróbico, cuerpo-mente o combinado) según las necesidades, preferencias y capacidades de la persona.",
+        "Con barreras psicosociales importantes, combinar ejercicio con un abordaje psicológico, mejor en grupo.",
+        "Descartar antes los signos de alarma; la app no sirve para el dolor radicular agudo."
+      ],
+      "fases": [
+        {"nombre": "Inicio", "cuando": "Episodio controlado, sin signos de alarma.",
+         "plan": [["Plancha", "principiante", 2, 3], ["Hip Thrust", "principiante", 2, 3], ["Sentadilla", "principiante", 2, 3]]},
+        {"nombre": "Progresión", "cuando": "Tolera el inicio y gana confianza al moverse.",
+         "plan": [["Plancha", "intermedio", 3, 3], ["Hip Thrust", "intermedio", 3, 3], ["Peso Muerto", "principiante", 2, 2], ["Sentadilla", "intermedio", 2, 3]]}
+      ]
+    },
+    {
+      "id": "hombro-manguito",
+      "nombre": "Tendinopatía del manguito rotador",
+      "zona": "hombro",
+      "resumen": "Fortalecimiento progresivo del manguito y del hombro.",
+      "fuentes": [
+        {"cita": "Desmeules F et al. Rotator Cuff Tendinopathy Diagnosis, Nonsurgical Medical Care, and Rehabilitation: A Clinical Practice Guideline. J Orthop Sports Phys Ther. 2025", "url": "https://pure.ul.ie/en/publications/rotator-cuff-tendinopathy-diagnosis-nonsurgical-medical-care-and-/"},
+        {"cita": "HAS (Francia). Prise en charge des tendinopathies de la coiffe des rotateurs (2023, act. 2024)", "url": "https://www.has-sante.fr/upload/docs/application/pdf/2026-09/dir1/synthesis_-_management_of_rotator_cuff_tendinopathies.pdf"}
+      ],
+      "claves": [
+        "El ejercicio es la intervención central: fuerza progresiva y control motor, según el dolor y los objetivos.",
+        "Sin rotura completa, la cirugía solo se plantea si fracasa un tratamiento conservador adecuado.",
+        "Progresar la carga según la tolerancia del hombro."
+      ],
+      "fases": [
+        {"nombre": "Inicio", "cuando": "Dolor que permite elevar el brazo con control.",
+         "plan": [["Hombros Laterales", "principiante", 3, 3]]},
+        {"nombre": "Fortalecimiento", "cuando": "Eleva sin dolor que dure más de un día.",
+         "plan": [["Hombros Laterales", "intermedio", 3, 3], ["Press Militar", "principiante", 2, 3], ["Press Banca", "principiante", 2, 2]]},
+        {"nombre": "Carga y función", "cuando": "Tolera bien el fortalecimiento; objetivos de trabajo o deporte por encima de la cabeza.",
+         "plan": [["Press Militar", "intermedio", 3, 3], ["Press Banca", "intermedio", 3, 2], ["Plancha", "intermedio", 2, 3], ["Hombros Laterales", "avanzado", 2, 2]]}
+      ]
+    }
+  ]
+}

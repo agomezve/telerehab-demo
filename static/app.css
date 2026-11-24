@@ -443,6 +443,21 @@ h1, h2, h3 { margin: 0; line-height: 1.2; }
 .rec-linea { width: 120px; height: 34px; flex: none; }
 .rec-linea polyline { fill: none; stroke: var(--acento); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .tarjeta-rango .receta { margin: 0; font-size: 12.5px; }
+.claves-proto { margin: 0 0 14px; padding-left: 18px; font-size: 14px; color: var(--texto-2); }
+.claves-proto li { margin-bottom: 6px; }
+.fase-proto { display: grid; gap: 8px; margin-bottom: 10px; }
+.fase-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fase-cab .btn { width: auto; flex: none; min-height: 38px; padding: 0 18px; font-size: 15px; }
+.fase-proto > small { color: var(--texto-2); font-size: 13px; }
+.fase-ejs { display: grid; gap: 6px; }
+.fase-ejs > span { display: grid; grid-template-columns: 36px 1fr; column-gap: 10px; align-items: center; }
+.fase-ejs .miniatura { grid-row: span 2; width: 36px; height: 36px; border-radius: 9px; overflow: hidden; background: var(--superficie-2); }
+.fase-ejs .miniatura img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fase-ejs b { font-size: 14px; }
+.fase-ejs small { font-size: 12.5px; color: var(--texto-2); }
+.fuentes-proto { display: grid; gap: 8px; margin: 14px 0 10px; padding: 12px 14px; border-radius: 14px; background: var(--superficie-2); font-size: 13px; }
+.fuentes-proto b { display: flex; align-items: center; gap: 6px; }
+.fuentes-proto a { color: var(--azul); text-decoration: none; line-height: 1.35; }
 .ajuste-tit { margin: 18px 0 8px; font-size: 13px; font-weight: 650; color: var(--texto-2); }
 .caja-push { display: grid; gap: 10px; padding: 14px; border-radius: 16px; background: var(--superficie); border: 1px solid var(--borde); }
 .fila-push { display: flex; align-items: center; gap: 12px; }
@@ -721,3 +736,100 @@ a.btn { display: flex; align-items: center; justify-content: center; }
 .aviso-version .cerrar { width: 32px; height: 32px; border: 0; box-shadow: none; background: transparent; color: var(--texto-3); }
 /* Durante la serie no se tapa la cámara con el aviso de versión nueva */
 body:has(.directo) #aviso-version, body:has(.directo) .aviso-version { display: none; }
+
+/* ── Modo persona mayor (lo activa el fisio para cada paciente) ───────────────
+   Letra y botones más grandes, más contraste y menos cosas en pantalla. */
+body.modo-mayor { font-size: 19px; }
+body.modo-mayor .saludo h2 { font-size: 32px; }
+body.modo-mayor .saludo .fecha { font-size: 15px; color: var(--texto-2); }
+body.modo-mayor .seccion-tit { font-size: 15px; color: var(--texto-2); }
+body.modo-mayor .btn { min-height: 60px; font-size: 20px; border-radius: 16px; }
+body.modo-mayor .heroe h3 { font-size: 26px; }
+body.modo-mayor .heroe p { font-size: 17px; }
+body.modo-mayor .heroe small { font-size: 14px; }
+body.modo-mayor .heroe .btn.claro { min-height: 68px; font-size: 22px; }
+body.modo-mayor .item { padding-top: 16px; padding-bottom: 16px; }
+body.modo-mayor .item .txt b { font-size: 20px; }
+body.modo-mayor .item .txt small { font-size: 16px; color: var(--texto); }
+body.modo-mayor .item .miniatura { width: 60px; height: 60px; }
+body.modo-mayor .stat b { font-size: 22px; }
+body.modo-mayor .stat span, body.modo-mayor .kpi span { font-size: 15px; color: var(--texto); }
+body.modo-mayor .tabs button { font-size: 15px; }
+body.modo-mayor .tabs .ic { width: 28px; height: 28px; }
+body.modo-mayor .nota-fisio p { font-size: 19px; }
+body.modo-mayor .consejo { font-size: 22px; }
+body.modo-mayor .mensaje { font-size: 20px; }
+body.modo-mayor .colocacion { font-size: 20px; }
+body.modo-mayor .pauta span { font-size: 16px; }
+body.modo-mayor .campo label { font-size: 17px; }
+body.modo-mayor .campo input { font-size: 19px; min-height: 56px; }
+
+/* Mi clínica (equipo de fisioterapeutas) */
+.fila-nombre { display: flex; gap: 10px; align-items: end; }
+.fila-nombre .campo { flex: 1; margin: 0; }
+.fila-nombre .btn { width: auto; flex: none; }
+.equipo { display: grid; gap: 0; margin: 12px 0 4px; background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio); }
+.fila-equipo { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--borde); }
+.fila-equipo:first-child { border-top: 0; }
+.fila-equipo .txt { flex: 1; display: grid; min-width: 0; }
+.fila-equipo .txt small { color: var(--texto-2); font-size: 13px; }
+
+/* ── Mensajes del fisio: aviso flotante al entrar + buzón en la cabecera ── */
+.acciones-cab { align-items: center; }
+.btn-icono.buzon { position: relative; }
+.btn-icono.buzon .insignia { position: absolute; top: -5px; right: -5px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 10px;
+  display: grid; place-items: center; background: var(--rojo); color: #fff; font-size: 11px; font-weight: 800; border: 2px solid var(--fondo);
+  animation: latido 1.6s ease-in-out 3; }
+@keyframes latido { 50% { transform: scale(1.18); } }
+.mensaje-flotante { position: fixed; z-index: 45; left: 12px; right: 12px; top: calc(10px + var(--seguro-arriba)); max-width: 520px; margin: 0 auto;
+  display: flex; align-items: stretch; background: var(--superficie); border: 1px solid var(--borde); border-radius: 18px; box-shadow: var(--sombra);
+  overflow: hidden; transform: translateY(calc(-100% - 24px)); opacity: 0; transition: transform .35s cubic-bezier(.2, .9, .3, 1.15), opacity .25s; }
+.mensaje-flotante.visible { transform: none; opacity: 1; }
+.mensaje-flotante .mf-cuerpo { flex: 1; display: flex; gap: 12px; align-items: flex-start; text-align: left; border: 0; background: none; padding: 14px 4px 16px 14px; min-width: 0; }
+.mensaje-flotante .ic-caja { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; flex: none; background: var(--azul); color: #fff; }
+.mensaje-flotante .mf-txt { display: grid; gap: 2px; min-width: 0; }
+.mensaje-flotante small { font-size: 12px; font-weight: 650; color: var(--texto-2); }
+.mensaje-flotante b { font-size: 15px; font-weight: 600; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.mensaje-flotante .mf-cerrar { border: 0; background: none; color: var(--texto-3); padding: 0 14px; align-self: flex-start; height: 44px; }
+.mensaje-flotante .mf-tiempo { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--azul); transform-origin: left; }
+.mensaje-flotante.visible .mf-tiempo { animation: consumir var(--duracion, 7s) linear forwards; }
+@keyframes consumir { to { transform: scaleX(0); } }
+.burbuja-msg { display: flex; gap: 12px; align-items: flex-start; padding: 16px; border-radius: var(--radio); background: var(--azul-suave); margin: 4px 0 12px; }
+.burbuja-msg .ic-caja { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; flex: none; background: var(--azul); color: #fff; }
+.burbuja-msg small { font-size: 12px; font-weight: 650; color: var(--texto-2); }
+.burbuja-msg p { margin: 4px 0 0; font-size: 16px; font-weight: 550; white-space: pre-wrap; }
+body.modo-mayor .mensaje-flotante b { font-size: 19px; }
+body.modo-mayor .burbuja-msg p { font-size: 20px; }
+body.modo-mayor .btn-icono.buzon, body.modo-mayor .btn-icono.avatar { width: 48px; height: 48px; }
+@media (prefers-reduced-motion: reduce) {
+  .mensaje-flotante { transition: opacity .2s; transform: none; }
+  .btn-icono.buzon .insignia { animation: none; }
+}
+
+/* ── Pulido visual ── */
+/* Foco visible con teclado: anillo sólido, que se vea en claro y oscuro */
+:focus-visible { outline: 2px solid var(--azul); outline-offset: 2px; }
+.btn:focus-visible, .item:focus-visible, .chip:focus-visible { outline: 2px solid var(--azul); outline-offset: 3px; }
+/* Las tarjetas de la pantalla de inicio entran escalonadas (solo ahí: otras listas se repintan al tocarlas) */
+.pantalla .lista > .item[data-ej], .pantalla .atencion > *, .pantalla .stats > *, .pantalla .kpis > * { animation: aparecer .32s ease-out both; }
+.pantalla .lista > .item[data-ej]:nth-child(2), .pantalla .atencion > :nth-child(2), .pantalla .stats > :nth-child(2), .pantalla .kpis > :nth-child(2) { animation-delay: .04s; }
+.pantalla .lista > .item[data-ej]:nth-child(3), .pantalla .atencion > :nth-child(3), .pantalla .kpis > :nth-child(3) { animation-delay: .08s; }
+.pantalla .lista > .item[data-ej]:nth-child(n+4), .pantalla .atencion > :nth-child(n+4) { animation-delay: .12s; }
+@keyframes aparecer { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+/* Saludo del fisio */
+.saludo-fisio { margin: 4px 2px 12px; }
+.saludo-fisio h2 { font-size: 24px; }
+.saludo-fisio p { font-size: 15px; }
+/* Pantalla de entrada: un halo de color de marca detrás del logo */
+.login { background: radial-gradient(120% 60% at 50% -10%, var(--acento-suave), transparent 70%), var(--fondo); }
+.marca img { transition: transform .3s; }
+/* Interacción en ordenador */
+@media (hover: hover) {
+  .item:hover, .aviso-cab:hover { border-color: color-mix(in srgb, var(--acento) 35%, var(--borde)); }
+  .btn-icono:hover { border-color: color-mix(in srgb, var(--acento) 45%, var(--borde)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pantalla, .pantalla .lista > .item[data-ej], .pantalla .atencion > *, .pantalla .stats > *, .pantalla .kpis > * { animation: none; }
+}
+/* Si a la vez está el aviso de versión nueva, el mensaje del fisio va debajo y no se tapan */
+body:has(.aviso-version:not([hidden])) .mensaje-flotante { top: calc(100px + var(--seguro-arriba)); }
